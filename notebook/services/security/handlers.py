@@ -21,7 +21,7 @@ class CSPReportHandler(APIHandler):
         # don't check XSRF for CSP reports
         return
 
-    @web.authenticated
+
     def post(self):
         '''Log a content security policy violation report'''
         self.log.warning("Content security violation: %s",

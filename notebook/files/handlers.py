@@ -26,11 +26,11 @@ class FilesHandler(IPythonHandler):
     a subclass of StaticFileHandler.
     """
 
-    @web.authenticated
+
     def head(self, path):
         self.get(path, include_body=False)
 
-    @web.authenticated
+
     def get(self, path, include_body=True):
         cm = self.contents_manager
 

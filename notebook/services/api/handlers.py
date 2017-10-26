@@ -18,7 +18,7 @@ class APISpecHandler(web.StaticFileHandler, IPythonHandler):
     def initialize(self):
         web.StaticFileHandler.initialize(self, path=os.path.dirname(__file__))
 
-    @web.authenticated
+
     def get(self):
         self.log.warning("Serving api spec (experimental, incomplete)")
         self.set_header('Content-Type', 'text/x-yaml')
@@ -28,7 +28,7 @@ class APIStatusHandler(APIHandler):
 
     _track_activity = False
 
-    @web.authenticated
+
     @gen.coroutine
     def get(self):
         # if started was missing, use unix epoch

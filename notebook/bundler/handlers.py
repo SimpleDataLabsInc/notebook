@@ -39,7 +39,7 @@ class BundlerHandler(IPythonHandler):
         cm = ConfigManager()
         return cm.get('notebook').get('bundlerextensions', {})[bundler_id]
 
-    @web.authenticated
+
     @gen.coroutine
     def get(self, path):
         """Bundle the given notebook.

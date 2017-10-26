@@ -10,7 +10,7 @@ from ..utils import url_escape
 
 class EditorHandler(IPythonHandler):
     """Render the text editor interface."""
-    @web.authenticated
+
     def get(self, path):
         path = path.strip('/')
         if not self.contents_manager.file_exists(path):

@@ -483,7 +483,7 @@ class APIHandler(IPythonHandler):
 
     def get_login_url(self):
         # if get_login_url is invoked in an API handler,
-        # that means @web.authenticated is trying to trigger a redirect.
+        # that means  is trying to trigger a redirect.
         # instead of redirecting, raise 403 instead.
         if not self.current_user:
             raise web.HTTPError(403)
@@ -527,7 +527,7 @@ class Template404(IPythonHandler):
 class AuthenticatedFileHandler(IPythonHandler, web.StaticFileHandler):
     """static files should only be accessible when logged in"""
 
-    @web.authenticated
+
     def get(self, path):
         if os.path.splitext(path)[1] == '.ipynb' or self.get_argument("download", False):
             name = path.rsplit('/', 1)[-1]

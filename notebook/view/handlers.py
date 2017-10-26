@@ -10,7 +10,7 @@ from ..utils import url_escape, url_path_join
 
 class ViewHandler(IPythonHandler):
     """Render HTML files within an iframe."""
-    @web.authenticated
+
     def get(self, path):
         path = path.strip('/')
         if not self.contents_manager.file_exists(path):

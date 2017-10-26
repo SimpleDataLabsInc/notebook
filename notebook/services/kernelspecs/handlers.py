@@ -45,7 +45,7 @@ def kernelspec_model(handler, name):
 
 class MainKernelSpecHandler(APIHandler):
 
-    @web.authenticated
+
     def get(self):
         ksm = self.kernel_spec_manager
         km = self.kernel_manager
@@ -65,7 +65,7 @@ class MainKernelSpecHandler(APIHandler):
 
 class KernelSpecHandler(APIHandler):
 
-    @web.authenticated
+
     def get(self, kernel_name):
         try:
             model = kernelspec_model(self, url_unescape(kernel_name))

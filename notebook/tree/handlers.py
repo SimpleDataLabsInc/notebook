@@ -34,7 +34,7 @@ class TreeHandler(IPythonHandler):
         else:
             return 'Home'
 
-    @web.authenticated
+
     def get(self, path=''):
         path = path.strip('/')
         cm = self.contents_manager
