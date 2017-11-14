@@ -14,7 +14,7 @@ from notebook.utils import url_path_join, url_escape
 from jupyter_client.jsonutil import date_default
 
 from notebook.base.handlers import (
-    IPythonHandler, APIHandler, path_regex,
+    IPythonHandler, PrefixStaticHandler, APIHandler, path_regex,
 )
 
 
@@ -283,7 +283,7 @@ class ModifyCheckpointsHandler(APIHandler):
         self.finish()
 
 
-class NotebooksRedirectHandler(IPythonHandler):
+class NotebooksRedirectHandler(PrefixStaticHandler):
     """Redirect /api/notebooks to /api/contents"""
     SUPPORTED_METHODS = ('GET', 'PUT', 'PATCH', 'POST', 'DELETE')
 
@@ -298,7 +298,7 @@ class NotebooksRedirectHandler(IPythonHandler):
     put = patch = post = delete = get
 
 
-class TrustNotebooksHandler(IPythonHandler):
+class TrustNotebooksHandler(PrefixStaticHandler):
     """ Handles trust/signing of notebooks """
 
 

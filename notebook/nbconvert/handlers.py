@@ -11,9 +11,9 @@ from tornado import web, escape
 from tornado.log import app_log
 
 from ..base.handlers import (
-    IPythonHandler, FilesRedirectHandler,
+    IPythonHandler, PrefixStaticHandler, FilesRedirectHandler,
     path_regex,
-)
+    PrefixStaticHandler)
 from nbformat import from_dict
 
 from ipython_genutils.py3compat import cast_bytes
@@ -73,7 +73,7 @@ def get_exporter(format, **kwargs):
         app_log.exception("Could not construct Exporter: %s", Exporter)
         raise web.HTTPError(500, "Could not construct Exporter: %s" % e)
 
-class NbconvertFileHandler(IPythonHandler):
+class NbconvertFileHandler(PrefixStaticHandler):
 
     SUPPORTED_METHODS = ('GET',)
     
@@ -130,7 +130,7 @@ class NbconvertFileHandler(IPythonHandler):
 
         self.finish(output)
 
-class NbconvertPostHandler(IPythonHandler):
+class NbconvertPostHandler(PrefixStaticHandler):
     SUPPORTED_METHODS = ('POST',)
 
 

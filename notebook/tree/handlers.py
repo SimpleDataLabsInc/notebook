@@ -5,19 +5,25 @@
 
 from tornado import web
 import os
-from ..base.handlers import IPythonHandler, path_regex
+from ..base.handlers import IPythonHandler, PrefixStaticHandler, path_regex
 from ..utils import url_path_join, url_escape
 
 
-class TreeHandler(IPythonHandler):
+class TreeHandler(PrefixStaticHandler):
     """Render the tree view, listing notebooks, etc."""
 
-    def generate_breadcrumbs(self, path):
-        breadcrumbs = [(url_path_join(self.base_url, 'tree'), '')]
+    # def static_url(self, path, include_host=None, **kwargs):
+    #     prefix = self.get_query_argument("prefix", "")
+    #     static_url = super(TreeHandler, self).static_url(path, include_host, **kwargs)
+    #     return prefix + static_url
+
+    def generate_breadcrumbs(self, path, prefix = ""):
+        new_base_url = self.base_url + prefix
+        breadcrumbs = [(url_path_join(new_base_url, 'tree'), '')]
         parts = path.split('/')
         for i in range(len(parts)):
             if parts[i]:
-                link = url_path_join(self.base_url, 'tree',
+                link = url_path_join(new_base_url, 'tree',
                     url_escape(url_path_join(*parts[:i+1])),
                 )
                 breadcrumbs.append((link, parts[i]))
@@ -38,12 +44,13 @@ class TreeHandler(IPythonHandler):
     def get(self, path=''):
         path = path.strip('/')
         cm = self.contents_manager
-        
+        prefix = self.get_query_argument("prefix", "")
+        self.log.info("Changing Path with %s", prefix)
         if cm.dir_exists(path=path):
             if cm.is_hidden(path):
                 self.log.info("Refusing to serve hidden directory, via 404 Error")
                 raise web.HTTPError(404)
-            breadcrumbs = self.generate_breadcrumbs(path)
+            breadcrumbs = self.generate_breadcrumbs(path, prefix)
             page_title = self.generate_page_title(path)
             self.write(self.render_template('tree.html',
                 page_title=page_title,
@@ -57,8 +64,9 @@ class TreeHandler(IPythonHandler):
             model = cm.get(path, content=False)
             # redirect to /api/notebooks if it's a notebook, otherwise /api/files
             service = 'notebooks' if model['type'] == 'notebook' else 'files'
+            new_base_dir = self.base_url + prefix
             url = url_path_join(
-                self.base_url, service, url_escape(path),
+                new_base_dir, service, url_escape(path),
             )
             self.log.debug("Redirecting %s to %s", self.request.path, url)
             self.redirect(url)

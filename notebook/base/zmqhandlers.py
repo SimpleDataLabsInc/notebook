@@ -23,7 +23,7 @@ from jupyter_client.session import Session
 from jupyter_client.jsonutil import date_default, extract_dates
 from ipython_genutils.py3compat import cast_unicode
 
-from .handlers import IPythonHandler
+from .handlers import IPythonHandler, PrefixStaticHandler
 
 def serialize_binary_message(msg):
     """serialize a message as a binary blob

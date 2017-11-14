@@ -14,10 +14,10 @@ except ImportError: #PY2
 
 from tornado import web
 
-from notebook.base.handlers import IPythonHandler
+from notebook.base.handlers import IPythonHandler, PrefixStaticHandler
 
 
-class FilesHandler(IPythonHandler):
+class FilesHandler(PrefixStaticHandler):
     """serve files via ContentsManager
 
     Normally used when ContentsManager is not a FileContentsManager.

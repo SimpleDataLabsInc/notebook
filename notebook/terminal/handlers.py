@@ -6,11 +6,11 @@
 
 from tornado import web
 import terminado
-from ..base.handlers import IPythonHandler
+from ..base.handlers import IPythonHandler, PrefixStaticHandler
 from ..base.zmqhandlers import WebSocketMixin
 
 
-class TerminalHandler(IPythonHandler):
+class TerminalHandler(PrefixStaticHandler):
     """Render the terminal interface."""
 
     def get(self, term_name):

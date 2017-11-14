@@ -15,10 +15,10 @@ from tornado.escape import url_escape
 
 from ..auth.security import passwd_check
 
-from ..base.handlers import IPythonHandler
+from ..base.handlers import PrefixStaticHandler
 
 
-class LoginHandler(IPythonHandler):
+class LoginHandler(PrefixStaticHandler):
     """The basic tornado login handler
 
     authenticates with a hashed password from the configuration.

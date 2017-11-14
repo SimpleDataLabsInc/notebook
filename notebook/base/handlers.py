@@ -12,15 +12,16 @@ import sys
 import traceback
 import types
 import warnings
+
 try:
     # py3
     from http.client import responses
 except ImportError:
     from httplib import responses
 try:
-    from urllib.parse import urlparse # Py 3
+    from urllib.parse import urlparse  # Py 3
 except ImportError:
-    from urlparse import urlparse # Py 2
+    from urlparse import urlparse  # Py 2
 
 from jinja2 import TemplateNotFound
 from tornado import web, gen, escape
@@ -37,23 +38,27 @@ from notebook._tz import utcnow
 from notebook.utils import is_hidden, url_path_join, url_is_absolute, url_escape
 from notebook.services.security import csp_report_uri
 
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Top-level handlers
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 non_alphanum = re.compile(r'[^A-Za-z0-9]')
 
 _sys_info_cache = None
+
+
 def json_sys_info():
     global _sys_info_cache
     if _sys_info_cache is None:
         _sys_info_cache = json.dumps(get_sys_info())
     return _sys_info_cache
 
+
 def log():
     if Application.initialized():
         return Application.instance().log
     else:
         return app_log
+
 
 class AuthenticatedHandler(web.RequestHandler):
     """A RequestHandler with an authenticated user."""
@@ -89,10 +94,10 @@ class AuthenticatedHandler(web.RequestHandler):
                 # if method is unsupported (websocket and Access-Control-Allow-Origin
                 # for example, so just ignore)
                 self.log.debug(e)
-    
+
     def clear_login_cookie(self):
         self.clear_cookie(self.cookie_name)
-    
+
     def get_current_user(self):
         if self.login_handler is None:
             return 'anonymous'
@@ -124,7 +129,7 @@ class AuthenticatedHandler(web.RequestHandler):
             self.request.host
         ))
         return self.settings.get('cookie_name', default_cookie_name)
-    
+
     @property
     def logged_in(self):
         """Is a user currently logged in?"""
@@ -176,7 +181,7 @@ class IPythonHandler(AuthenticatedHandler):
     @property
     def config(self):
         return self.settings.get('config', None)
-    
+
     @property
     def log(self):
         """use the IPython log by default, falling back on tornado's logger"""
@@ -186,23 +191,23 @@ class IPythonHandler(AuthenticatedHandler):
     def jinja_template_vars(self):
         """User-supplied values to supply to jinja templates."""
         return self.settings.get('jinja_template_vars', {})
-    
-    #---------------------------------------------------------------
+
+    # ---------------------------------------------------------------
     # URLs
-    #---------------------------------------------------------------
-    
+    # ---------------------------------------------------------------
+
     @property
     def version_hash(self):
         """The version hash to use for cache hints for static files"""
         return self.settings.get('version_hash', '')
-    
+
     @property
     def mathjax_url(self):
         url = self.settings.get('mathjax_url', '')
         if not url or url_is_absolute(url):
             return url
         return url_path_join(self.base_url, url)
-    
+
     @property
     def mathjax_config(self):
         return self.settings.get('mathjax_config', 'TeX-AMS-MML_HTMLorMML-full,Safe')
@@ -221,14 +226,14 @@ class IPythonHandler(AuthenticatedHandler):
 
     @property
     def contents_js_source(self):
-        self.log.debug("Using contents: %s", self.settings.get('contents_js_source',
-            'services/contents'))
+        self.log.info("Using contents: %s", self.settings.get('contents_js_source',
+                                                               'services/contents'))
         return self.settings.get('contents_js_source', 'services/contents')
-    
-    #---------------------------------------------------------------
+
+    # ---------------------------------------------------------------
     # Manager objects
-    #---------------------------------------------------------------
-    
+    # ---------------------------------------------------------------
+
     @property
     def kernel_manager(self):
         return self.settings['kernel_manager']
@@ -236,15 +241,15 @@ class IPythonHandler(AuthenticatedHandler):
     @property
     def contents_manager(self):
         return self.settings['contents_manager']
-    
+
     @property
     def session_manager(self):
         return self.settings['session_manager']
-    
+
     @property
     def terminal_manager(self):
         return self.settings['terminal_manager']
-    
+
     @property
     def kernel_spec_manager(self):
         return self.settings['kernel_spec_manager']
@@ -253,25 +258,25 @@ class IPythonHandler(AuthenticatedHandler):
     def config_manager(self):
         return self.settings['config_manager']
 
-    #---------------------------------------------------------------
+    # ---------------------------------------------------------------
     # CORS
-    #---------------------------------------------------------------
-    
+    # ---------------------------------------------------------------
+
     @property
     def allow_origin(self):
         """Normal Access-Control-Allow-Origin"""
         return self.settings.get('allow_origin', '')
-    
+
     @property
     def allow_origin_pat(self):
         """Regular expression version of allow_origin"""
         return self.settings.get('allow_origin_pat', None)
-    
+
     @property
     def allow_credentials(self):
         """Whether to set Access-Control-Allow-Credentials"""
         return self.settings.get('allow_credentials', False)
-    
+
     def set_default_headers(self):
         """Add CORS headers, if defined"""
         super(IPythonHandler, self).set_default_headers()
@@ -283,7 +288,7 @@ class IPythonHandler(AuthenticatedHandler):
                 self.set_header("Access-Control-Allow-Origin", origin)
         if self.allow_credentials:
             self.set_header("Access-Control-Allow-Credentials", 'true')
-    
+
     def set_attachment_header(self, filename):
         """Set Content-Disposition: attachment header
 
@@ -291,12 +296,12 @@ class IPythonHandler(AuthenticatedHandler):
         """
         escaped_filename = url_escape(filename)
         self.set_header('Content-Disposition',
-            'attachment;'
-            " filename*=utf-8''{utf8}"
-            .format(
-                utf8=escaped_filename,
-            )
-        )
+                        'attachment;'
+                        " filename*=utf-8''{utf8}"
+                        .format(
+                            utf8=escaped_filename,
+                        )
+                        )
 
     def get_origin(self):
         # Handle WebSocket Origin naming convention differences
@@ -351,8 +356,8 @@ class IPythonHandler(AuthenticatedHandler):
             allow = False
         if not allow:
             self.log.warning("Blocking Cross Origin API request for %s.  Origin: %s, Host: %s",
-                self.request.path, origin, host,
-            )
+                             self.request.path, origin, host,
+                             )
         return allow
 
     def check_xsrf_cookie(self):
@@ -363,19 +368,19 @@ class IPythonHandler(AuthenticatedHandler):
             return
         return super(IPythonHandler, self).check_xsrf_cookie()
 
-    #---------------------------------------------------------------
+    # ---------------------------------------------------------------
     # template rendering
-    #---------------------------------------------------------------
-    
+    # ---------------------------------------------------------------
+
     def get_template(self, name):
         """Return the jinja template object for a given name"""
         return self.settings['jinja2_env'].get_template(name)
-    
+
     def render_template(self, name, **ns):
         ns.update(self.template_namespace)
         template = self.get_template(name)
         return template.render(**ns)
-    
+
     @property
     def template_namespace(self):
         return dict(
@@ -395,7 +400,7 @@ class IPythonHandler(AuthenticatedHandler):
             xsrf_token=self.xsrf_token.decode('utf8'),
             **self.jinja_template_vars
         )
-    
+
     def get_json_body(self):
         """Return the body of the request as JSON data."""
         if not self.request.body:
@@ -423,12 +428,12 @@ class IPythonHandler(AuthenticatedHandler):
                 message = exception.log_message % exception.args
             except Exception:
                 pass
-            
+
             # construct the custom reason, if defined
             reason = getattr(exception, 'reason', '')
             if reason:
                 status_message = reason
-        
+
         # build template namespace
         ns = dict(
             status_code=status_code,
@@ -447,7 +452,41 @@ class IPythonHandler(AuthenticatedHandler):
         self.write(html)
 
 
-class APIHandler(IPythonHandler):
+import traceback
+class PrefixStaticHandler(IPythonHandler):
+    def static_url(self, path, include_host=None, **kwargs):
+        # self.log.info("%s", traceback.extract_stack())
+        self.log.info("kwargs: %s", kwargs)
+        static_url = super(PrefixStaticHandler, self).static_url(path, include_host, **kwargs)
+        prefix = self.get_argument("prefix", "")
+        suffix = self.get_argument("spark", "")
+        # self.log.info("PREFIX: %s, SUFFIX: %s, URL: %s", prefix, suffix, static_url)
+        # if self.contents_js_source not in static_url:
+        # if suffix:
+        #         if "?" in static_url:
+        #             static_url = static_url + "&spark=" + suffix
+        #         else:
+        #             static_url = static_url + "?spark=" + suffix
+        url = prefix + static_url
+        self.log.info("Static Url: %s", url)
+        return url
+
+    # @property
+    # def prefix(self):
+    #     self.log.info("Prefixing Request")
+    #     prefix = self.get_argument("prefix", "")
+    #     if prefix:
+    #         prefix = prefix + "/"
+    #     return prefix
+    #
+    # @property
+    # def contents_js_source(self):
+    #     source = super(PrefixStaticHandler, self).contents_js_source
+    #     # self.log.info("Content_JS_Source: %s", source)
+    #     return source
+
+
+class APIHandler(PrefixStaticHandler):
     """Base class for API handlers"""
 
     def prepare(self):
@@ -492,9 +531,9 @@ class APIHandler(IPythonHandler):
     @property
     def content_security_policy(self):
         csp = '; '.join([
-                super(APIHandler, self).content_security_policy,
-                "default-src 'none'",
-            ])
+            super(APIHandler, self).content_security_policy,
+            "default-src 'none'",
+        ])
         return csp
 
     # set _track_activity = False on API handlers that shouldn't track activity
@@ -518,8 +557,9 @@ class APIHandler(IPythonHandler):
                         'GET, PUT, POST, PATCH, DELETE, OPTIONS')
 
 
-class Template404(IPythonHandler):
+class Template404(PrefixStaticHandler):
     """Render our 404 template"""
+
     def prepare(self):
         raise web.HTTPError(404)
 
@@ -527,14 +567,13 @@ class Template404(IPythonHandler):
 class AuthenticatedFileHandler(IPythonHandler, web.StaticFileHandler):
     """static files should only be accessible when logged in"""
 
-
     def get(self, path):
         if os.path.splitext(path)[1] == '.ipynb' or self.get_argument("download", False):
             name = path.rsplit('/', 1)[-1]
             self.set_attachment_header(name)
 
         return web.StaticFileHandler.get(self, path)
-    
+
     def get_content_type(self):
         path = self.absolute_path.strip('/')
         if '/' in path:
@@ -555,10 +594,10 @@ class AuthenticatedFileHandler(IPythonHandler, web.StaticFileHandler):
         # disable browser caching, rely on 304 replies for savings
         if "v" not in self.request.arguments:
             self.add_header("Cache-Control", "no-cache")
-    
+
     def compute_etag(self):
         return None
-    
+
     def validate_absolute_path(self, root, absolute_path):
         """Validate and return the absolute path.
         
@@ -587,51 +626,53 @@ def json_errors(method):
        the error in a human readable form.
     """
     warnings.warn('@json_errors is deprecated in notebook 5.2.0. Subclass APIHandler instead.',
-        DeprecationWarning,
-        stacklevel=2,
-    )
+                  DeprecationWarning,
+                  stacklevel=2,
+                  )
+
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
         self.write_error = types.MethodType(APIHandler.write_error, self)
         return method(self, *args, **kwargs)
+
     return wrapper
 
 
-
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # File handler
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 
 # to minimize subclass changes:
 HTTPError = web.HTTPError
 
+
 class FileFindHandler(IPythonHandler, web.StaticFileHandler):
     """subclass of StaticFileHandler for serving files from a search path"""
-    
+
     # cache search results, don't search for files more than once
     _static_paths = {}
-    
+
     def set_headers(self):
         super(FileFindHandler, self).set_headers()
         # disable browser caching, rely on 304 replies for savings
         if "v" not in self.request.arguments or \
                 any(self.request.path.startswith(path) for path in self.no_cache_paths):
             self.set_header("Cache-Control", "no-cache")
-    
+
     def initialize(self, path, default_filename=None, no_cache_paths=None):
         self.no_cache_paths = no_cache_paths or []
-        
+
         if isinstance(path, string_types):
             path = [path]
-        
+
         self.root = tuple(
             os.path.abspath(os.path.expanduser(p)) + os.sep for p in path
         )
         self.default_filename = default_filename
-    
+
     def compute_etag(self):
         return None
-    
+
     @classmethod
     def get_absolute_path(cls, roots, path):
         """locate a file to serve on our static file search path"""
@@ -643,30 +684,28 @@ class FileFindHandler(IPythonHandler, web.StaticFileHandler):
             except IOError:
                 # IOError means not found
                 return ''
-            
-            cls._static_paths[path] = abspath
-            
 
-            log().debug("Path %s served from %s"%(path, abspath))
+            cls._static_paths[path] = abspath
+
+            log().debug("Path %s served from %s" % (path, abspath))
             return abspath
-    
+
     def validate_absolute_path(self, root, absolute_path):
         """check if the file should be served (raises 404, 403, etc.)"""
         if absolute_path == '':
             raise web.HTTPError(404)
-        
+
         for root in self.root:
             if (absolute_path + os.sep).startswith(root):
                 break
-        
+
         return super(FileFindHandler, self).validate_absolute_path(root, absolute_path)
 
 
 class APIVersionHandler(APIHandler):
-
     def get(self):
         # not authenticated, so give as few info as possible
-        self.finish(json.dumps({"version":notebook.__version__}))
+        self.finish(json.dumps({"version": notebook.__version__}))
 
 
 class TrailingSlashHandler(web.RequestHandler):
@@ -674,16 +713,16 @@ class TrailingSlashHandler(web.RequestHandler):
     
     This should be the first, highest priority handler.
     """
-    
+
     def get(self):
         self.redirect(self.request.uri.rstrip('/'))
-    
+
     post = put = get
 
 
-class FilesRedirectHandler(IPythonHandler):
+class FilesRedirectHandler(PrefixStaticHandler):
     """Handler for redirecting relative URLs to the /files/ handler"""
-    
+
     @staticmethod
     def redirect_to_files(self, path):
         """make redirect logic a reusable static method
@@ -712,13 +751,14 @@ class FilesRedirectHandler(IPythonHandler):
             url = url_path_join(self.base_url, 'files', url_escape(path))
         self.log.debug("Redirecting %s to %s", self.request.path, url)
         self.redirect(url)
-    
+
     def get(self, path=''):
         return self.redirect_to_files(self, path)
 
 
 class RedirectWithParams(web.RequestHandler):
     """Sam as web.RedirectHandler, but preserves URL parameters"""
+
     def initialize(self, url, permanent=True):
         self._url = url
         self._permanent = permanent
@@ -728,16 +768,17 @@ class RedirectWithParams(web.RequestHandler):
         url = sep.join([self._url, self.request.query])
         self.redirect(url, permanent=self._permanent)
 
-#-----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
 # URL pattern fragments for re-use
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 
 # path matches any number of `/foo[/bar...]` or just `/` or ''
 path_regex = r"(?P<path>(?:(?:/[^/]+)+|/?))"
 
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # URL to handler mappings
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 
 
 default_handlers = [

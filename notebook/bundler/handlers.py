@@ -4,13 +4,13 @@
 # Distributed under the terms of the Modified BSD License.
 from . import tools
 from notebook.utils import url2path
-from notebook.base.handlers import IPythonHandler
+from notebook.base.handlers import IPythonHandler, PrefixStaticHandler
 from notebook.services.config import ConfigManager
 from ipython_genutils.importstring import import_item
 from tornado import web, gen
 
 
-class BundlerHandler(IPythonHandler):
+class BundlerHandler(PrefixStaticHandler):
     def initialize(self):
         """Make tools module available on the handler instance for compatibility
         with existing bundler API and ease of reference."""

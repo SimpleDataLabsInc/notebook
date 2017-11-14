@@ -8,7 +8,7 @@ import json
 
 from tornado import gen, web
 
-from ...base.handlers import IPythonHandler, APIHandler
+from ...base.handlers import IPythonHandler, PrefixStaticHandler, APIHandler
 from notebook._tz import utcfromtimestamp, isoformat
 
 import os
