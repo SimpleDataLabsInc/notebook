@@ -26,7 +26,7 @@ class NotebookHandler(PrefixStaticHandler):
         redirects to the '/files/' handler if the name is not given."""
         path = path.strip('/')
         cm = self.contents_manager
-        url_prefix = self.get_query_argument("prefix", "")
+        # url_prefix = self.get_query_argument("prefix", "")
         
         # will raise 404 on not found
         try:
@@ -41,13 +41,12 @@ class NotebookHandler(PrefixStaticHandler):
             # not a notebook, redirect to files
             return FilesRedirectHandler.redirect_to_files(self, path)
         name = path.rsplit('/', 1)[-1]
-        MSG = self.render_template('notebook.html',
+        self.write(self.render_template('notebook.html',
             notebook_path=path,
             notebook_name=name,
             kill_kernel=False,
             mathjax_url=self.mathjax_url,
-            mathjax_config=self.mathjax_config)
-        self.write(MSG)
+            mathjax_config=self.mathjax_config))
 
 
 #-----------------------------------------------------------------------------

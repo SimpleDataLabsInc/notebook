@@ -226,8 +226,8 @@ class IPythonHandler(AuthenticatedHandler):
 
     @property
     def contents_js_source(self):
-        self.log.info("Using contents: %s", self.settings.get('contents_js_source',
-                                                               'services/contents'))
+        # self.log.info("Using contents: %s", self.settings.get('contents_js_source',
+        #                                                        'services/contents'))
         return self.settings.get('contents_js_source', 'services/contents')
 
     # ---------------------------------------------------------------
@@ -453,23 +453,25 @@ class IPythonHandler(AuthenticatedHandler):
 
 
 import traceback
+
+
 class PrefixStaticHandler(IPythonHandler):
-    def static_url(self, path, include_host=None, **kwargs):
-        # self.log.info("%s", traceback.extract_stack())
-        self.log.info("kwargs: %s", kwargs)
-        static_url = super(PrefixStaticHandler, self).static_url(path, include_host, **kwargs)
-        prefix = self.get_argument("prefix", "")
-        suffix = self.get_argument("spark", "")
-        # self.log.info("PREFIX: %s, SUFFIX: %s, URL: %s", prefix, suffix, static_url)
-        # if self.contents_js_source not in static_url:
-        # if suffix:
-        #         if "?" in static_url:
-        #             static_url = static_url + "&spark=" + suffix
-        #         else:
-        #             static_url = static_url + "?spark=" + suffix
-        url = prefix + static_url
-        self.log.info("Static Url: %s", url)
-        return url
+    # def static_url(self, path, include_host=None, **kwargs):
+    # self.log.info("%s", traceback.extract_stack())
+    # self.log.info("kwargs: %s", kwargs)
+    # static_url = super(PrefixStaticHandler, self).static_url(path, include_host, **kwargs)
+    # prefix = self.get_argument("prefix", "")
+    # suffix = self.get_argument("spark", "")
+    # self.log.info("PREFIX: %s, SUFFIX: %s, URL: %s", prefix, suffix, static_url)
+    # if self.contents_js_source not in static_url:
+    # if suffix:
+    #         if "?" in static_url:
+    #             static_url = static_url + "&spark=" + suffix
+    #         else:
+    #             static_url = static_url + "?spark=" + suffix
+    # url = prefix + static_url
+    # self.log.info("Static Url: %s", url)
+    # return static_url
 
     # @property
     # def prefix(self):
@@ -484,6 +486,7 @@ class PrefixStaticHandler(IPythonHandler):
     #     source = super(PrefixStaticHandler, self).contents_js_source
     #     # self.log.info("Content_JS_Source: %s", source)
     #     return source
+    pass
 
 
 class APIHandler(PrefixStaticHandler):

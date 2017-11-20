@@ -17,8 +17,8 @@ class TreeHandler(PrefixStaticHandler):
     #     static_url = super(TreeHandler, self).static_url(path, include_host, **kwargs)
     #     return prefix + static_url
 
-    def generate_breadcrumbs(self, path, prefix = ""):
-        new_base_url = self.base_url + prefix
+    def generate_breadcrumbs(self, path):#, prefix = ""):
+        new_base_url = self.base_url# + prefix
         breadcrumbs = [(url_path_join(new_base_url, 'tree'), '')]
         parts = path.split('/')
         for i in range(len(parts)):
@@ -44,13 +44,13 @@ class TreeHandler(PrefixStaticHandler):
     def get(self, path=''):
         path = path.strip('/')
         cm = self.contents_manager
-        prefix = self.get_query_argument("prefix", "")
-        self.log.info("Changing Path with %s", prefix)
+        # prefix = self.get_query_argument("prefix", "")
+        # self.log.info("Changing Path with %s", prefix)
         if cm.dir_exists(path=path):
             if cm.is_hidden(path):
                 self.log.info("Refusing to serve hidden directory, via 404 Error")
                 raise web.HTTPError(404)
-            breadcrumbs = self.generate_breadcrumbs(path, prefix)
+            breadcrumbs = self.generate_breadcrumbs(path)#, prefix)
             page_title = self.generate_page_title(path)
             self.write(self.render_template('tree.html',
                 page_title=page_title,
@@ -64,7 +64,7 @@ class TreeHandler(PrefixStaticHandler):
             model = cm.get(path, content=False)
             # redirect to /api/notebooks if it's a notebook, otherwise /api/files
             service = 'notebooks' if model['type'] == 'notebook' else 'files'
-            new_base_dir = self.base_url + prefix
+            new_base_dir = self.base_url# + prefix
             url = url_path_join(
                 new_base_dir, service, url_escape(path),
             )

@@ -72,6 +72,6 @@
  * @class customjs
  * @static
  */
-define(['base/js/namespace'], function(Jupyter){
-        Jupyter._target = '_self';
-    });
+//define(['base/js/namespace'], function(Jupyter){
+//        Jupyter._target = '_self';
+//    });
