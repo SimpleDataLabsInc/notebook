@@ -65,6 +65,7 @@ class AuthenticatedHandler(web.RequestHandler):
 
     @property
     def content_security_policy(self):
+        # self.log.info("%s", self.settings.get('headers', {}))
         """The default Content-Security-Policy header
         
         Can be overridden by defining Content-Security-Policy in settings['headers']
@@ -456,8 +457,11 @@ import traceback
 
 
 class PrefixStaticHandler(IPythonHandler):
-    # def static_url(self, path, include_host=None, **kwargs):
-    # self.log.info("%s", traceback.extract_stack())
+    def static_url(self, path, include_host=None, **kwargs):
+        # self.log.info("PATH: %s, kwargs: %s", path, kwargs)
+        url = super(PrefixStaticHandler, self).static_url(path, include_host, **kwargs)
+        # self.log.info("STATIC_URL: %s", url)
+        return url  
     # self.log.info("kwargs: %s", kwargs)
     # static_url = super(PrefixStaticHandler, self).static_url(path, include_host, **kwargs)
     # prefix = self.get_argument("prefix", "")
@@ -533,10 +537,11 @@ class APIHandler(PrefixStaticHandler):
 
     @property
     def content_security_policy(self):
-        csp = '; '.join([
-            super(APIHandler, self).content_security_policy,
-            "default-src 'none'",
-        ])
+        # csp = '; '.join([
+        #     super(APIHandler, self).content_security_policy,
+        #     "default-src 'none'",
+        # ])
+        csp = super(APIHandler, self).content_security_policy
         return csp
 
     # set _track_activity = False on API handlers that shouldn't track activity
