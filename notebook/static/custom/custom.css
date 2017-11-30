@@ -35,3 +35,9 @@ div.cell.selected.jupyter-soft-selected:before {
 .edit_mode div.cell.selected {
   border-color: #00bfc3;
 }
+
+@media (min-width: 1200px) {
+  .container {
+    width: 100% !important;
+  }
+}
