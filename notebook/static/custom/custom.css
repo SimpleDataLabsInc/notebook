@@ -27,9 +27,20 @@ This will always be an empty file in IPython
   display: none !important;
 }
 
+div.cell.selected,
+div.cell.selected.jupyter-soft-selected,
 div.cell.selected:before,
 div.cell.selected.jupyter-soft-selected:before {
   background: #3023ae !important;
+}
+
+.edit_mode div.cell.selected:before,
+div.cell.selected.jupyter-soft-selected:before {
+  background: #00bfc3 !important;
+}
+
+.notebook_app {
+  background-color: rgba(0, 0, 0, 0.06) !important;
 }
 
 .edit_mode div.cell.selected {
