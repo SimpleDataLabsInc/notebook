@@ -28,7 +28,7 @@ This will always be an empty file in IPython
 }
 
 div.cell.selected,
-div.cell.selected.jupyter-soft-selected,
+div.cell.selected.jupyter-soft-selected{border-color: #3023ae !important }
 div.cell.selected:before,
 div.cell.selected.jupyter-soft-selected:before {
   background: #3023ae !important;
