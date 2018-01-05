@@ -100,7 +100,7 @@ def find_package_data():
     """
     Find package_data.
     """
-    # This is not enough for these things to appear in an sdist.
+    # This is not enough for these things to appear in a sdist.
     # We need to muck with the MANIFEST to get this to work
     
     # exclude components and less from the walk;
@@ -210,6 +210,7 @@ def find_package_data():
         'notebook.tests' : js_tests,
         'notebook.bundler.tests': ['resources/*', 'resources/*/*', 'resources/*/*/.*'],
         'notebook.services.api': ['api.yaml'],
+        'notebook.i18n': ['*/LC_MESSAGES/*.*'],
     }
     
     return package_data

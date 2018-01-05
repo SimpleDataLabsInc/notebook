@@ -34,6 +34,7 @@ from ipython_genutils.py3compat import string_types
 
 import notebook
 from notebook._tz import utcnow
+from notebook.i18n import combine_translations
 from notebook.utils import is_hidden, url_path_join, url_is_absolute, url_escape
 from notebook.services.security import csp_report_uri
 
@@ -399,6 +400,7 @@ class IPythonHandler(AuthenticatedHandler):
             default_url=self.default_url,
             ws_url=self.ws_url,
             logged_in=self.logged_in,
+            allow_password_change=self.settings.get('allow_password_change'),
             login_available=self.login_available,
             token_available=bool(self.token or self.one_time_token),
             static_url=self.static_url,
@@ -409,6 +411,8 @@ class IPythonHandler(AuthenticatedHandler):
             xsrf_form_html=self.xsrf_form_html,
             token=self.token,
             xsrf_token=self.xsrf_token.decode('utf8'),
+            nbjs_translations=json.dumps(combine_translations(
+                self.request.headers.get('Accept-Language', ''))),
             **self.jinja_template_vars
         )
     
@@ -483,8 +487,10 @@ class APIHandler(IPythonHandler):
             e = exc_info[1]
             if isinstance(e, HTTPError):
                 reply['message'] = e.log_message or message
+                reply['reason'] = e.reason
             else:
                 reply['message'] = 'Unhandled error'
+                reply['reason'] = None
                 reply['traceback'] = ''.join(traceback.format_exception(*exc_info))
         self.log.warning(reply['message'])
         self.finish(json.dumps(reply))

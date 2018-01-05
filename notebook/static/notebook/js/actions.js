@@ -36,8 +36,8 @@ define([
         Object.seal(this);
     };
 
-    var $ = require('jquery');
-    var events =  require('base/js/events');
+    var $ = requirejs('jquery');
+    var events =  requirejs('base/js/events');
 
     /**
      *  A bunch of predefined `Simple Actions` used by Jupyter.
@@ -949,12 +949,12 @@ define([
 
     ActionHandler.prototype.get_name = function(name_or_data){
         /**
-         * given an `action` or `name` of a action, return the name attached to this action.
+         * given an `action` or `name` of an action, return the name attached to this action.
          * if given the name of and corresponding actions does not exist in registry, return `null`.
          **/
 
         if(typeof(name_or_data) === 'string'){
-            warn_bad_name(name);
+            warn_bad_name(name_or_data);
             if(this.exists(name_or_data)){
                 return name_or_data;
             } else {

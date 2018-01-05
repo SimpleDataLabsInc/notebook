@@ -8,6 +8,7 @@
 # Distributed under the terms of the Modified BSD License.
 
 from collections import defaultdict
+from datetime import datetime, timedelta
 from functools import partial
 import os
 
@@ -17,13 +18,13 @@ from tornado.ioloop import IOLoop, PeriodicCallback
 
 from jupyter_client.session import Session
 from jupyter_client.multikernelmanager import MultiKernelManager
-from traitlets import Any, Bool, Dict, List, Unicode, TraitError, Integer, default, validate
+from traitlets import (Any, Bool, Dict, List, Unicode, TraitError, Integer,
+       Instance, default, validate
+)
 
 from notebook.utils import to_os_path, exists
 from notebook._tz import utcnow, isoformat
 from ipython_genutils.py3compat import getcwd
-
-from datetime import timedelta
 
 
 class MappingKernelManager(MultiKernelManager):
@@ -61,11 +62,10 @@ class MappingKernelManager(MultiKernelManager):
             raise TraitError("kernel root dir %r is not a directory" % value)
         return value
 
-    cull_idle_timeout_minimum = 300 # 5 minutes
     cull_idle_timeout = Integer(0, config=True,
-        help="""Timeout (in seconds) after which a kernel is considered idle and ready to be culled.  Values of 0 or
-        lower disable culling. The minimum timeout is 300 seconds (5 minutes). Positive values less than the minimum value
-        will be set to the minimum."""
+        help="""Timeout (in seconds) after which a kernel is considered idle and ready to be culled.
+        Values of 0 or lower disable culling. Very short timeouts may result in kernels being culled
+        for users with poor network connections."""
     )
 
     cull_interval_default = 300 # 5 minutes
@@ -75,12 +75,12 @@ class MappingKernelManager(MultiKernelManager):
 
     cull_connected = Bool(False, config=True,
         help="""Whether to consider culling kernels which have one or more connections.
-        Only effective if cull_idle_timeout is not 0."""
+        Only effective if cull_idle_timeout > 0."""
     )
 
     cull_busy = Bool(False, config=True,
         help="""Whether to consider culling kernels which are busy.
-        Only effective if cull_idle_timeout is not 0."""
+        Only effective if cull_idle_timeout > 0."""
     )
 
     buffer_offline_messages = Bool(True, config=True,
@@ -98,6 +98,13 @@ class MappingKernelManager(MultiKernelManager):
     @default('_kernel_buffers')
     def _default_kernel_buffers(self):
         return defaultdict(lambda: {'buffer': [], 'session_key': '', 'channels': {}})
+
+    last_kernel_activity = Instance(datetime,
+        help="The last activity on any kernel, including shutting down a kernel")
+
+    def __init__(self, **kwargs):
+        super(MappingKernelManager, self).__init__(**kwargs)
+        self.last_kernel_activity = utcnow()
 
     #-------------------------------------------------------------------------
     # Methods for managing kernels and sessions
@@ -242,7 +249,6 @@ class MappingKernelManager(MultiKernelManager):
         for stream in buffer_info['channels'].values():
             if not stream.closed():
                 stream.on_recv(None)
-                stream.socket.close()
                 stream.close()
 
         msg_buffer = buffer_info['buffer']
@@ -257,6 +263,7 @@ class MappingKernelManager(MultiKernelManager):
         kernel._activity_stream.close()
         self.stop_buffering(kernel_id)
         self._kernel_connections.pop(kernel_id, None)
+        self.last_kernel_activity = utcnow()
         return super(MappingKernelManager, self).shutdown_kernel(kernel_id, now=now)
 
     def restart_kernel(self, kernel_id):
@@ -362,7 +369,7 @@ class MappingKernelManager(MultiKernelManager):
 
         def record_activity(msg_list):
             """Record an IOPub message arriving from a kernel"""
-            kernel.last_activity = utcnow()
+            self.last_kernel_activity = kernel.last_activity = utcnow()
 
             idents, fed_msg_list = session.feed_identities(msg_list)
             msg = session.deserialize(fed_msg_list)
@@ -381,17 +388,13 @@ class MappingKernelManager(MultiKernelManager):
         """
         if not self._initialized_culler and self.cull_idle_timeout > 0:
             if self._culler_callback is None:
-                if self.cull_idle_timeout < self.cull_idle_timeout_minimum:
-                    self.log.warning("'cull_idle_timeout' (%s) is less than the minimum value (%s) and has been set to the minimum.",
-                        self.cull_idle_timeout, self.cull_idle_timeout_minimum)
-                    self.cull_idle_timeout = self.cull_idle_timeout_minimum
                 loop = IOLoop.current()
                 if self.cull_interval <= 0: #handle case where user set invalid value
                     self.log.warning("Invalid value for 'cull_interval' detected (%s) - using default value (%s).",
                         self.cull_interval, self.cull_interval_default)
                     self.cull_interval = self.cull_interval_default
                 self._culler_callback = PeriodicCallback(
-                    self.cull_kernels, 1000*self.cull_interval, loop)
+                    self.cull_kernels, 1000*self.cull_interval)
                 self.log.info("Culling kernels with idle durations > %s seconds at %s second intervals ...",
                     self.cull_idle_timeout, self.cull_interval)
                 if self.cull_busy:
