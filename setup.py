@@ -144,7 +144,7 @@ setup_args['scripts'] = glob(pjoin('scripts', '*'))
 
 install_requires = [
     'jinja2',
-    'tornado>=4',
+    'tornado==4.5.2',
     'ipython_genutils',
     'traitlets>=4.2.1',
     'jupyter_core',
@@ -152,6 +152,7 @@ install_requires = [
     'nbformat',
     'nbconvert',
     'ipykernel', # bless IPython kernel for now
+    'pyzmq==16.0.3'
 ]
 extras_require = {
     ':sys_platform != "win32"': ['terminado>=0.3.3'],
