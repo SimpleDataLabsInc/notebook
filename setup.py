@@ -144,11 +144,11 @@ setup_args['scripts'] = glob(pjoin('scripts', '*'))
 
 install_requires = [
     'jinja2',
-    'tornado==4.5.2',
+    'tornado==4.5.3',
     'ipython_genutils',
     'traitlets>=4.2.1',
     'jupyter_core',
-    'jupyter_client',
+    'jupyter_client==5.1.0',
     'nbformat',
     'nbconvert',
     'ipykernel', # bless IPython kernel for now
