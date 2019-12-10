@@ -6,7 +6,7 @@ from ...base.handlers import APIHandler
 
 class NbconvertRootHandler(APIHandler):
 
-    @web.authenticated
+
     def get(self):
         try:
             from nbconvert.exporters.export import exporter_map

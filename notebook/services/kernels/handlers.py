@@ -10,29 +10,28 @@ import json
 import logging
 from textwrap import dedent
 
+from ipython_genutils.py3compat import cast_unicode
+from jupyter_client import protocol_version as client_protocol_version
+from jupyter_client.jsonutil import date_default
 from tornado import gen, web
 from tornado.concurrent import Future
 from tornado.ioloop import IOLoop
 
-from jupyter_client.jsonutil import date_default
-from ipython_genutils.py3compat import cast_unicode
 from notebook.utils import url_path_join, url_escape
-
 from ...base.handlers import APIHandler
 from ...base.zmqhandlers import AuthenticatedZMQStreamHandler, deserialize_binary_message
 
-from jupyter_client import protocol_version as client_protocol_version
 
 class MainKernelHandler(APIHandler):
 
-    @web.authenticated
+
     @gen.coroutine
     def get(self):
         km = self.kernel_manager
         kernels = yield gen.maybe_future(km.list_kernels())
         self.finish(json.dumps(kernels, default=date_default))
 
-    @web.authenticated
+
     @gen.coroutine
     def post(self):
         km = self.kernel_manager
@@ -54,14 +53,14 @@ class MainKernelHandler(APIHandler):
 
 class KernelHandler(APIHandler):
 
-    @web.authenticated
+
     def get(self, kernel_id):
         km = self.kernel_manager
         km._check_kernel_id(kernel_id)
         model = km.kernel_model(kernel_id)
         self.finish(json.dumps(model, default=date_default))
 
-    @web.authenticated
+
     @gen.coroutine
     def delete(self, kernel_id):
         km = self.kernel_manager
@@ -72,7 +71,7 @@ class KernelHandler(APIHandler):
 
 class KernelActionHandler(APIHandler):
 
-    @web.authenticated
+
     @gen.coroutine
     def post(self, kernel_id, action):
         km = self.kernel_manager
@@ -213,7 +212,11 @@ class ZMQChannelsHandler(AuthenticatedZMQStreamHandler):
     @gen.coroutine
     def pre_get(self):
         # authenticate first
-        super(ZMQChannelsHandler, self).pre_get()
+        # super(ZMQChannelsHandler, self).pre_get()
+        if self.get_argument('session_id', False):
+            self.session.session = cast_unicode(self.get_argument('session_id'))
+        else:
+            self.log.warning("No session ID specified")
         # check session collision:
         yield self._register_session()
         # then request kernel info, waiting up to a certain time before giving up.

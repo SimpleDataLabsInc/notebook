@@ -78,7 +78,7 @@ class NbconvertFileHandler(IPythonHandler):
 
     SUPPORTED_METHODS = ('GET',)
 
-    @web.authenticated
+
     def get(self, format, path):
 
         exporter = get_exporter(format, config=self.config, log=self.log)
@@ -145,7 +145,7 @@ class NbconvertFileHandler(IPythonHandler):
 class NbconvertPostHandler(IPythonHandler):
     SUPPORTED_METHODS = ('POST',)
 
-    @web.authenticated
+
     def post(self, format):
         exporter = get_exporter(format, config=self.config)
 

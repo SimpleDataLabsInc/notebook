@@ -141,12 +141,17 @@ class MappingKernelManager(MultiKernelManager):
             The name identifying which kernel spec to launch. This is ignored if
             an existing kernel is returned, but it may be checked in the future.
         """
+        kernel_name = kwargs["kernel_name"]
         if kernel_id is None:
             if path is not None:
                 kwargs['cwd'] = self.cwd_for_path(path)
-            kernel_id = yield gen.maybe_future(
-                super(MappingKernelManager, self).start_kernel(**kwargs)
-            )
+            exists = [(k, v) for k, v in self._kernels.items() if v.kernel_name == kernel_name]
+            if exists:
+                kernel_id = exists[0][0]
+            else:
+                kernel_id = yield gen.maybe_future(
+                    super(MappingKernelManager, self).start_kernel(**kwargs)
+                )
             self._kernel_connections[kernel_id] = 0
             self.start_watching_activity(kernel_id)
             self.log.info("Kernel started: %s" % kernel_id)
