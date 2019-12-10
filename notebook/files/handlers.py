@@ -26,6 +26,7 @@ class FilesHandler(IPythonHandler):
     a subclass of StaticFileHandler.
     """
 
+
     @property
     def content_security_policy(self):
         # In case we're serving HTML/SVG, confine any Javascript to a unique
@@ -33,11 +34,10 @@ class FilesHandler(IPythonHandler):
         return super(FilesHandler, self).content_security_policy + \
                "; sandbox allow-scripts"
 
-    @web.authenticated
     def head(self, path):
         self.get(path, include_body=False)
 
-    @web.authenticated
+
     def get(self, path, include_body=True):
         cm = self.contents_manager
 

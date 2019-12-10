@@ -608,7 +608,6 @@ class AuthenticatedFileHandler(IPythonHandler, web.StaticFileHandler):
         return super(AuthenticatedFileHandler, self).content_security_policy + \
                 "; sandbox allow-scripts"
 
-    @web.authenticated
     def get(self, path):
         if os.path.splitext(path)[1] == '.ipynb' or self.get_argument("download", False):
             name = path.rsplit('/', 1)[-1]

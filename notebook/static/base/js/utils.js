@@ -816,6 +816,16 @@ define([
             if (xsrf_token) {
                 settings.headers['X-XSRFToken'] = xsrf_token;
             }
+//            var csrf = _get_cookie('csrfToken');
+//            if (csrf) {
+//                settings.headers['Csrf-Token'] = csrf;
+//            }
+        }
+        console.log('cookie::  ', document.cookie);
+        var csrf = _get_cookie('PLAY_SESSION');
+        if (csrf) {
+
+            settings.headers['Csrf-Token'] = csrf.split('csrfToken=')[1];
         }
         return settings;
     };

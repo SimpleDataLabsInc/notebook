@@ -30,13 +30,18 @@ def get_custom_frontend_exporters():
 
 class NotebookHandler(IPythonHandler):
 
-    @web.authenticated
+    # def static_url(self, path, include_host=None, **kwargs):
+    #     prefix = self.get_query_argument("prefix", "")
+    #     static_url = super(NotebookHandler, self).static_url(path, include_host, **kwargs)
+    #     return prefix + static_url
+
     def get(self, path):
         """get renders the notebook template if a name is given, or 
         redirects to the '/files/' handler if the name is not given."""
         path = path.strip('/')
         cm = self.contents_manager
-        
+        # url_prefix = self.get_query_argument("prefix", "")
+
         # will raise 404 on not found
         try:
             model = cm.get(path, content=False)

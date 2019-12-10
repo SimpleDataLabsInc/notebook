@@ -8,7 +8,7 @@ import json
 
 from tornado import gen, web
 
-from ...base.handlers import IPythonHandler, APIHandler
+from ...base.handlers import IPythonHandler, PrefixStaticHandler, APIHandler
 from notebook._tz import utcfromtimestamp, isoformat
 
 import os
@@ -18,7 +18,7 @@ class APISpecHandler(web.StaticFileHandler, IPythonHandler):
     def initialize(self):
         web.StaticFileHandler.initialize(self, path=os.path.dirname(__file__))
 
-    @web.authenticated
+
     def get(self):
         self.log.warning("Serving api spec (experimental, incomplete)")
         return web.StaticFileHandler.get(self, 'api.yaml')
@@ -30,7 +30,7 @@ class APIStatusHandler(APIHandler):
 
     _track_activity = False
 
-    @web.authenticated
+
     @gen.coroutine
     def get(self):
         # if started was missing, use unix epoch
