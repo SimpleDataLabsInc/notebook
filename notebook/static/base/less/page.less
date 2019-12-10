@@ -124,9 +124,10 @@ span#login_widget {
 }
 
 span#login_widget > .button,
-#logout
+#logout, #shutdown
 {
     .btn-default();
+    margin-left: 10px;
 }
 
 .nav-header {
@@ -170,4 +171,18 @@ span#login_widget > .button,
         margin-left: @padding-base-horizontal;
         margin-right: @padding-base-horizontal;
     }
+}
+
+/* rtl fixes for the error, connecting, and renaming window */
+
+[dir="rtl"] .modal-footer {
+    text-align : left !important;
+}
+
+[dir="rtl"] .close {
+    float : left;
+}
+
+[dir="rtl"] .fa-step-forward::before {
+    content: "\f048";
 }

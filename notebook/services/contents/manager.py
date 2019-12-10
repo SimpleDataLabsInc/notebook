@@ -19,6 +19,7 @@ from nbformat.v4 import new_notebook
 from ipython_genutils.importstring import import_item
 from traitlets import (
     Any,
+    Bool,
     Dict,
     Instance,
     List,
@@ -30,6 +31,7 @@ from traitlets import (
 )
 from ipython_genutils.py3compat import string_types
 from notebook.base.handlers import IPythonHandler
+from notebook.transutils import _
 
 
 copy_pat = re.compile(r'\-Copy\d*\.')
@@ -55,6 +57,8 @@ class ContentsManager(LoggingConfigurable):
     """
     
     root_dir = Unicode('/', config=True)
+
+    allow_hidden = Bool(False, config=True, help="Allow access to hidden files")
 
     notary = Instance(sign.NotebookNotary)
     def _notary_default(self):
@@ -327,7 +331,10 @@ class ContentsManager(LoggingConfigurable):
         """
         # Extract the full suffix from the filename (e.g. .tar.gz)
         path = path.strip('/')
-        basename, dot, ext = filename.partition('.')
+        basename, dot, ext = filename.rpartition('.')
+        if ext != 'ipynb':
+                basename, dot, ext = filename.partition('.')
+                
         suffix = dot + ext
 
         for i in itertools.count():
@@ -421,6 +428,8 @@ class ContentsManager(LoggingConfigurable):
 
         If to_path not specified, it will be the parent directory of from_path.
         If to_path is a directory, filename will increment `from_path-Copy#.ext`.
+        Considering multi-part extensions, the Copy# part will be placed before the first dot for all the extensions except `ipynb`.
+        For easier manual searching in case of notebooks, the Copy# part will be placed before the last dot. 
 
         from_path must be a full path to a file.
         """

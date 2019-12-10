@@ -113,7 +113,7 @@ define([
     /**
      *
      * pass true as parameter if this is the first invocation of the completer
-     * this will prevent the completer to dissmiss itself if it is not on a
+     * this will prevent the completer to dismiss itself if it is not on a
      * word boundary like pressing tab after a space, and make it autopick the
      * only choice if there is only one which prevent from popping the UI.  as
      * well as fast-forwarding the typing if all completion have a common
@@ -134,7 +134,7 @@ define([
 
         // we need to check that we are still on a word boundary
         // because while typing the completer is still reinvoking itself
-        // so dismiss if we are on a "bad" caracter
+        // so dismiss if we are on a "bad" character
         if (!this.reinvoke(pre_cursor) && !first_invocation) {
             this.close();
             return;
@@ -210,7 +210,7 @@ define([
 
         // append the introspection result, in order, at at the beginning of
         // the table and compute the replacement range from current cursor
-        // positon and matched_text length.
+        // position and matched_text length.
         var from = this.editor.posFromIndex(start);
         var to = this.editor.posFromIndex(end);
         for (i = matches.length - 1; i >= 0; --i) {
@@ -278,7 +278,7 @@ define([
         }
         this.sel.attr('size', Math.min(10, this.raw_result.length));
 
-        // After everything is on the page, compute the postion.
+        // After everything is on the page, compute the position.
         // We put it above the code if it is too close to the bottom of the page.
         var pos = this.editor.cursorCoords(
             this.editor.posFromIndex(start)
@@ -306,7 +306,8 @@ define([
     };
 
     Completer.prototype.build_gui_list = function (completions) {
-        for (var i = 0; i < completions.length; ++i) {
+        var MAXIMUM_GUI_LIST_LENGTH = 1000;
+        for (var i = 0; i < completions.length && i < MAXIMUM_GUI_LIST_LENGTH; ++i) {
             var opt = $('<option/>').text(completions[i].str).addClass(completions[i].type);
             this.sel.append(opt);
         }
@@ -373,6 +374,7 @@ define([
             index = Math.min(Math.max(index, 0), options.length-1);
             this.sel[0].selectedIndex = index;
         } else if (code == keycodes.pageup || code == keycodes.pagedown) {
+            event.codemirrorIgnore = true;
             event._ipkmIgnore = true;
 
             options = this.sel.find('option');

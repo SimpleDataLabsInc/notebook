@@ -32,12 +32,9 @@ from notebook.utils import (
     to_api_path,
 )
 from notebook.base.handlers import AuthenticatedFileHandler
+from notebook.transutils import _
 
-try:
-    from os.path import samefile
-except ImportError:
-    # windows + py2
-    from notebook.utils import samefile_simple as samefile
+from os.path import samefile
 
 _script_exporter = None
 
@@ -78,7 +75,6 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
             return getcwd()
 
     save_script = Bool(False, config=True, help='DEPRECATED, use post_save_hook. Will be removed in Notebook 5.0')
-
     @observe('save_script')
     def _update_save_script(self, change):
         if not change['new']:
@@ -245,6 +241,14 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
         """Build the common base of a contents model"""
         os_path = self._get_os_path(path)
         info = os.lstat(os_path)
+        
+        try:
+            # size of file 
+            size = info.st_size
+        except (ValueError, OSError):
+            self.log.warning('Unable to get size.')
+            size = None
+        
         try:
             last_modified = tz.utcfromtimestamp(info.st_mtime)
         except (ValueError, OSError):
@@ -270,6 +274,8 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
         model['content'] = None
         model['format'] = None
         model['mimetype'] = None
+        model['size'] = size
+
         try:
             model['writable'] = os.access(os_path, os.W_OK)
         except OSError:
@@ -288,7 +294,7 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
 
         if not os.path.isdir(os_path):
             raise web.HTTPError(404, four_o_four)
-        elif is_hidden(os_path, self.root_dir):
+        elif is_hidden(os_path, self.root_dir) and not self.allow_hidden:
             self.log.info("Refusing to serve hidden directory %r, via 404 Error",
                 os_path
             )
@@ -296,6 +302,7 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
 
         model = self._base_model(path)
         model['type'] = 'directory'
+        model['size'] = None
         if content:
             model['content'] = contents = []
             os_dir = self._get_os_path(path)
@@ -323,15 +330,16 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
                     self.log.debug("%s not a regular file", os_path)
                     continue
 
-                if self.should_list(name) and not is_file_hidden(os_path, stat_res=st):
-                    contents.append(self.get(
-                        path='%s/%s' % (path, name),
-                        content=False)
-                    )
+                if self.should_list(name):
+                    if self.allow_hidden or not is_file_hidden(os_path, stat_res=st):
+                        contents.append(
+                                self.get(path='%s/%s' % (path, name), content=False)
+                        )
 
             model['format'] = 'json'
 
         return model
+
 
     def _file_model(self, path, content=True, format=None):
         """Build a model for a file
@@ -373,13 +381,15 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
         """
         model = self._base_model(path)
         model['type'] = 'notebook'
+        os_path = self._get_os_path(path)
+        
         if content:
-            os_path = self._get_os_path(path)
             nb = self._read_notebook(os_path, as_version=4)
             self.mark_trusted_cells(nb, path)
             model['content'] = nb
             model['format'] = 'json'
             self.validate_notebook_model(model)
+            
         return model
 
     def get(self, path, content=True, type=None, format=None):
@@ -426,7 +436,7 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
 
     def _save_directory(self, os_path, model, path=''):
         """create a directory"""
-        if is_hidden(os_path, self.root_dir):
+        if is_hidden(os_path, self.root_dir) and not self.allow_hidden:
             raise web.HTTPError(400, u'Cannot create hidden directory %r' % os_path)
         if not os.path.exists(os_path):
             with self.perm_to_403():
@@ -492,23 +502,47 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
         if not os.path.exists(os_path):
             raise web.HTTPError(404, u'File or directory does not exist: %s' % os_path)
 
+        def _check_trash(os_path):
+            if sys.platform in {'win32', 'darwin'}:
+                return True
+
+            # It's a bit more nuanced than this, but until we can better
+            # distinguish errors from send2trash, assume that we can only trash
+            # files on the same partition as the home directory.
+            file_dev = os.stat(os_path).st_dev
+            home_dev = os.stat(os.path.expanduser('~')).st_dev
+            return file_dev == home_dev
+
+        def is_non_empty_dir(os_path):
+            if os.path.isdir(os_path):
+                # A directory containing only leftover checkpoints is
+                # considered empty.
+                cp_dir = getattr(self.checkpoints, 'checkpoint_dir', None)
+                if set(os.listdir(os_path)) - {cp_dir}:
+                    return True
+
+            return False
+
         if self.delete_to_trash:
-            self.log.debug("Sending %s to trash", os_path)
-            # Looking at the code in send2trash, I don't think the errors it
-            # raises let us distinguish permission errors from other errors in
-            # code. So for now, just let them all get logged as server errors.
-            send2trash(os_path)
-            return
+            if sys.platform == 'win32' and is_non_empty_dir(os_path):
+                # send2trash can really delete files on Windows, so disallow
+                # deleting non-empty files. See Github issue 3631.
+                raise web.HTTPError(400, u'Directory %s not empty' % os_path)
+            if _check_trash(os_path):
+                self.log.debug("Sending %s to trash", os_path)
+                # Looking at the code in send2trash, I don't think the errors it
+                # raises let us distinguish permission errors from other errors in
+                # code. So for now, just let them all get logged as server errors.
+                send2trash(os_path)
+                return
+            else:
+                self.log.warning("Skipping trash for %s, on different device "
+                                 "to home directory", os_path)
 
         if os.path.isdir(os_path):
-            listing = os.listdir(os_path)
             # Don't permanently delete non-empty directories.
-            # A directory containing only leftover checkpoints is
-            # considered empty.
-            cp_dir = getattr(self.checkpoints, 'checkpoint_dir', None)
-            for entry in listing:
-                if entry != cp_dir:
-                    raise web.HTTPError(400, u'Directory %s not empty' % os_path)
+            if is_non_empty_dir(os_path):
+                raise web.HTTPError(400, u'Directory %s not empty' % os_path)
             self.log.debug("Removing directory %s", os_path)
             with self.perm_to_403():
                 shutil.rmtree(os_path)

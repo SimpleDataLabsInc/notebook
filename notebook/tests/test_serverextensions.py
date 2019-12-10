@@ -2,15 +2,12 @@ import imp
 import os
 import sys
 from unittest import TestCase
-try:
-    from unittest.mock import patch
-except ImportError:
-    from mock import patch # py2
+from unittest.mock import patch
 
 from ipython_genutils.tempdir import TemporaryDirectory
 from ipython_genutils import py3compat
 
-from traitlets.config.manager import BaseJSONConfigManager
+from notebook.config_manager import BaseJSONConfigManager
 from traitlets.tests.utils import check_help_all_output
 from jupyter_core import paths
 
@@ -147,6 +144,7 @@ class TestInstallServerExtension(MockEnvTestCase):
         toggle_serverextension_python('mockext_both', enabled=False, user=True)
 
         app = NotebookApp(nbserver_extensions={'mockext_py': True})
+        app.init_server_extension_config()
         app.init_server_extensions()
 
         assert mock_user.loaded

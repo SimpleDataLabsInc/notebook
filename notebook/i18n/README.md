@@ -15,6 +15,7 @@ However…
 run in).
 
 Hint: if running Windows, you can set it in PowerShell with `${Env:LANG} = "xx_XX"`.
+      if running Ubuntu 14, you should set environment variable `LANGUAGE="xx_XX"`.
 
 2. The preferred language for web pages in your browser settings (`xx`) is
    also used. At the moment, it has to be first in the list.
@@ -23,7 +24,7 @@ Hint: if running Windows, you can set it in PowerShell with `${Env:LANG} = "xx_X
 
 ### Requirements
 
-- *pybabel* (could be installed `pip install pybabel`)
+- *pybabel* (could be installed `pip install babel`)
 - *po2json* (could be installed with `npm install -g po2json`)
 
 **All i18n-related commands are done from the related directory :**
@@ -115,7 +116,7 @@ communicate this back to Jinja2.  So far, I haven't yet figured out how to do th
 of languages in the UI ( never a good thing ).
 
 2. We will need to decide if console messages should be translatable, and enable them if desired.
-3. The keyboard shorcut editor was implemented after the i18n work was completed, so that portion
+3. The keyboard shortcut editor was implemented after the i18n work was completed, so that portion
 does not have translation support at this time.
 4. Babel's documentation has instructions on how to integrate messages extraction
 into your *setup.py* so that eventually we can just do:

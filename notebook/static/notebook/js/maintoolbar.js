@@ -53,15 +53,18 @@ define([
           [ [new toolbar.Button('jupyter-notebook:run-cell-and-select-next',
                 {label: i18n.msg._('Run')}),
              'jupyter-notebook:interrupt-kernel',
-             'jupyter-notebook:confirm-restart-kernel'
+             'jupyter-notebook:confirm-restart-kernel',
+             'jupyter-notebook:confirm-restart-kernel-and-run-all-cells'
             ],
             'run_int'],
          ['<add_celltype_list>'],
-         [['jupyter-notebook:show-command-palette']]
+         [
+           ['jupyter-notebook:show-command-palette'],
+           'cmd_palette']
         ];
         this.construct(grps);
     };
-   
+
     MainToolBar.prototype._pseudo_actions = {};
 
     // add a cell type drop down to the maintoolbar.
@@ -72,6 +75,8 @@ define([
         var multiselect = $('<option/>').attr('value','multiselect').attr('disabled','').text('-');
         var sel = $('<select/>')
             .attr('id','cell_type')
+            .attr('aria-label', i18n.msg._('combobox, select cell type'))
+            .attr('role', 'combobox')
             .addClass('form-control select-xs')
             .append($('<option/>').attr('value','code').text(i18n.msg._('Code')))
             .append($('<option/>').attr('value','markdown').text(i18n.msg._('Markdown')))

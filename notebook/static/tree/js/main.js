@@ -35,6 +35,7 @@ requirejs([
     'tree/js/kernellist',
     'tree/js/terminallist',
     'tree/js/newnotebook',
+    'tree/js/shutdownbutton',
     'auth/js/loginwidget',
     'bidi/bidi',
 ], function(
@@ -52,6 +53,7 @@ requirejs([
     kernellist,
     terminallist,
     newnotebook,
+    shutdownbutton,
     loginwidget,
     bidi){
     "use strict";
@@ -170,7 +172,7 @@ requirejs([
 
     page.show();
 
-    // For backwards compatability.
+    // For backwards compatibility.
     IPython.page = page;
     IPython.notebook_list = notebook_list;
     IPython.session_list = session_list;
@@ -188,6 +190,15 @@ requirejs([
     $("#alternate_upload").change(function (event){
         notebook_list.handleFilesUpload(event,'form');
     });
+
+    // bound the the span around the input file upload to enable keyboard click
+    $("#upload_span").keydown(function (event) {
+        var key = event.which;
+        if ((key === 13) || (key === 32)) {
+            event.preventDefault();
+            $("#upload_span_input").click();
+        }
+    })
     
     // set hash on tab click
     $("#tabs").find("a").click(function(e) {
@@ -207,6 +218,8 @@ requirejs([
     
     // load tab if url hash
     if (window.location.hash) {
-        $("#tabs").find("a[href=" + window.location.hash + "]").click();
+        $("#tabs").find("a[href='" + window.location.hash + "']").click();
     }
+    
+    shutdownbutton.activate();
 });

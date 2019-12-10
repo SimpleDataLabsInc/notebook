@@ -47,21 +47,29 @@ This document describes how you can
 Securing a notebook server
 --------------------------
 
-You can protect your notebook server with a simple single password by
-configuring the :attr:`NotebookApp.password` setting in
-:file:`jupyter_notebook_config.py`.
+You can protect your notebook server with a simple single password. As of notebook
+5.0 this can be done automatically. To set up a password manually you can configure the
+:attr:`NotebookApp.password` setting in :file:`jupyter_notebook_config.py`.
+
 
 Prerequisite: A notebook configuration file
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Check to see if you have a notebook configuration file,
 :file:`jupyter_notebook_config.py`. The default location for this file
-is your Jupyter folder in your home directory, ``~/.jupyter``.
+is your Jupyter folder located in your home directory:
 
-If you don't already have one, create a config file for the notebook
-using the following command::
+    - Windows: :file:`C:\\Users\\USERNAME\\.jupyter\\jupyter_notebook_config.py`
+    - OS X: :file:`/Users/USERNAME/.jupyter/jupyter_notebook_config.py`
+    - Linux: :file:`/home/USERNAME/.jupyter/jupyter_notebook_config.py`
+
+If you don't already have a Jupyter folder, or if your Jupyter folder doesn't contain
+a notebook configuration file, run the following command::
 
   $ jupyter notebook --generate-config
+
+This command will create the Jupyter folder if necessary, and create notebook
+configuration file, :file:`jupyter_notebook_config.py`, in this folder.
 
 
 Automatic Password setup
@@ -132,9 +140,9 @@ directory, ``~/.jupyter``, e.g.::
     c.NotebookApp.password = u'sha1:67c9e60bb8b6:9ffede0825894254b2e042ea597d771089e11aed'
 
 Automatic password setup will store the hash in ``jupyter_notebook_config.json``
-while this method store in in ``jupyter_notebook_config.py``. The ``.json``
+while this method stores the hash in ``jupyter_notebook_config.py``. The ``.json``
 configuration options take precedence over the ``.py`` one, thus the manual
-password may not take effect if the Json file as a password set.
+password may not take effect if the Json file has a password set.
 
 
 Using SSL for encrypted communication
@@ -335,6 +343,35 @@ single-tab mode:
     });
 
 
+Using a gateway server for kernel management
+--------------------------------------------
+
+You are now able to redirect the management of your kernels to a Gateway Server
+(i.e., `Jupyter Kernel Gateway <https://jupyter-kernel-gateway.readthedocs.io/en/latest/>`_ or
+`Jupyter Enterprise Gateway <https://jupyter-enterprise-gateway.readthedocs.io/en/latest/>`_)
+simply by specifying a Gateway url via the following command-line option:
+
+    .. code-block:: bash
+
+        $ jupyter notebook --gateway-url=http://my-gateway-server:8888
+
+the environment:
+
+    .. code-block:: bash
+
+        JUPYTER_GATEWAY_URL=http://my-gateway-server:8888
+
+or in :file:`jupyter_notebook_config.py`:
+
+   .. code-block:: python
+
+      c.GatewayClient.url = http://my-gateway-server:8888
+
+When provided, all kernel specifications will be retrieved from the specified Gateway server and all
+kernels will be managed by that server.  This option enables the ability to target kernel processes
+against managed clusters while allowing for the notebook's management to remain local to the Notebook
+server.
+
 Known issues
 ------------
 
@@ -349,6 +386,42 @@ to configure your system not to use the proxy for the server's address.
 For example, in Firefox, go to the Preferences panel, Advanced section,
 Network tab, click 'Settings...', and add the address of the notebook server
 to the 'No proxy for' field.
+
+Content-Security-Policy (CSP)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Certain `security guidelines
+<https://infosec.mozilla.org/guidelines/web_security.html#content-security-policy>`_
+recommend that servers use a Content-Security-Policy (CSP) header to prevent
+cross-site scripting vulnerabilities, specifically limiting to ``default-src:
+https:`` when possible.  This directive causes two problems with Jupyter.
+First, it disables execution of inline javascript code, which is used
+extensively by Jupyter.  Second, it limits communication to the https scheme,
+and prevents WebSockets from working because they communicate via the wss
+scheme (or ws for insecure communication).  Jupyter uses WebSockets for
+interacting with kernels, so when you visit a server with such a CSP, your
+browser will block attempts to use wss, which will cause you to see
+"Connection failed" messages from jupyter notebooks, or simply no response
+from jupyter terminals.  By looking in your browser's javascript console, you
+can see any error messages that will explain what is failing.
+
+To avoid these problem, you need to add ``'unsafe-inline'`` and ``connect-src
+https: wss:`` to your CSP header, at least for pages served by jupyter.  (That
+is, you can leave your CSP unchanged for other parts of your website.)  Note
+that multiple CSP headers are allowed, but successive CSP headers can only
+restrict the policy; they cannot loosen it.  For example, if your server sends
+both of these headers
+
+    Content-Security-Policy "default-src https: 'unsafe-inline'"
+    Content-Security-Policy "connect-src https: wss:"
+
+the first policy will already eliminate wss connections, so the second has no
+effect.  Therefore, you can't simply add the second header; you have to
+actually modify your CSP header to look more like this:
+
+    Content-Security-Policy "default-src https: 'unsafe-inline'; connect-src https: wss:"
+
+
 
 Docker CMD
 ~~~~~~~~~~

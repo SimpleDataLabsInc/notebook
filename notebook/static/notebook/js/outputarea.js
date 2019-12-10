@@ -370,6 +370,7 @@ define([
     OutputArea.prototype.create_output_area = function () {
         var oa = $("<div/>").addClass("output_area");
         if (this.prompt_area) {
+            oa.append($('<div/>').addClass('run_this_cell'));
             oa.append($('<div/>').addClass('prompt'));
         }
         return oa;
@@ -471,7 +472,7 @@ define([
     };
 
     OutputArea.output_prompt_classical = function(prompt_value) {
-        return $('<bdi>').text(i18n.msg.sprintf(i18n.msg._('Out[%d]:'),prompt_value));
+        return $('<bdi>').text(i18n.msg.sprintf(i18n.msg._('Out[%s]:'),prompt_value));
     };
 
     OutputArea.output_prompt_function = OutputArea.output_prompt_classical;
@@ -631,6 +632,10 @@ define([
             (json.data[MIME_MARKDOWN] !== undefined)) {
             this.typeset();
         }
+        this.events.trigger('output_updated.OutputArea', {
+            output: json,
+            output_area: this,
+        });
     };
 
     OutputArea.prototype._record_display_id = function (json, element) {
@@ -674,19 +679,23 @@ define([
             var type = OutputArea.display_order[i];
             var append = OutputArea.append_map[type];
             if ((json.data[type] !== undefined) && append) {
+                var md = json.metadata || {};
                 var value = json.data[type];
+                var toinsert;
                 if (!this.trusted && !OutputArea.safe_outputs[type]) {
                     // not trusted, sanitize HTML
                     if (type===MIME_HTML || type==='text/svg') {
-                        value = security.sanitize_html(value);
+                        var parsed = $(security.sanitize_html_and_parse(value));
+                        toinsert = append.apply(this, [parsed, md, element, handle_inserted]);
                     } else {
                         // don't display if we don't know how to sanitize it
                         console.log("Ignoring untrusted " + type + " output.");
                         continue;
                     }
+                } else {
+                    toinsert = append.apply(this, [value, md, element, handle_inserted]);
                 }
-                var md = json.metadata || {};
-                var toinsert = append.apply(this, [value, md, element, handle_inserted]);
+
                 // Since only the png and jpeg mime types call the inserted
                 // callback, if the mime type is something other we must call the 
                 // inserted callback only when the element is actually inserted
@@ -723,7 +732,8 @@ define([
         var renderer = new marked.Renderer();
         renderer.tablecell = function (content, flags) {
           var type = flags.header ? 'th' : 'td';
-          var start_tag = '<' + type + '>';
+          var style = flags.align == null ? '': ' style="text-align: ' + flags.align + '"';
+          var start_tag = '<' + type + style + '>';
           var end_tag = '</' + type + '>\n';
           return start_tag + content + end_tag;
         };

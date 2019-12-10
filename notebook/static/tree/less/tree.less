@@ -1,4 +1,3 @@
-
 /**
  * Primary styles
  *
@@ -41,7 +40,7 @@ ul.breadcrumb {
         font-size: 16px;
         margin-right: 4px;
     }
-    
+
     span {
         color: @dark_dashboard_color;
     }
@@ -155,7 +154,7 @@ ul.breadcrumb {
 }
 
 .item_icon {
-    font-size: 14px; 
+    font-size: 14px;
     color: @dark_dashboard_color;
     margin-right: @dashboard_lr_pad;
     margin-left: @dashboard_lr_pad;
@@ -166,6 +165,11 @@ ul.breadcrumb {
 .item_modified {
     margin-right: @dashboard_lr_pad;
     margin-left: @dashboard_lr_pad;
+}
+
+.file_size {
+    width: 65px;
+    text-align: right;
 }
 
 [dir="rtl"] .item_modified.pull-right{
@@ -180,7 +184,7 @@ ul.breadcrumb {
     }
     .running-indicator {
         padding-top: @dashboard_tb_pad;
-        color: @brand-success;
+        color: darken(@brand-success,20%);
     }
     .kernel-name {
         padding-top: @dashboard_tb_pad;
@@ -224,11 +228,13 @@ ul.breadcrumb {
     padding-left: @dashboard_lr_pad;
     margin-left: -2px;
 
+
     > .breadcrumb {
         padding: 0px;
         margin-bottom: 0px;
         background-color: transparent;
         font-weight: bold;
+
     }
 }
 
@@ -249,7 +255,7 @@ ul.breadcrumb {
     min-width: 50px;
 }
 
-[dir="rtl"] #button-select-all.btn { 
+[dir="rtl"] #button-select-all.btn {
     float : right ;
 }
 
@@ -348,7 +354,7 @@ ul#new-menu {
                 padding-left: @dashboard_lr_pad;
                 padding-right: @dashboard_lr_pad;
                 line-height: @btn_mini_height;
-                
+
                 a:focus, a:hover {
                     text-decoration: none;
                 }

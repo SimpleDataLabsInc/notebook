@@ -37,8 +37,8 @@ define([
 
         // build the buttons menu on the upper right
         // expand the tooltip to see more
-        var expandlink = $('<a/>').attr('href', "#").addClass("ui-corner-all") //rounded corner
-        .attr('role', "button").attr('id', 'expanbutton').attr('title', i18n.msg._('Grow the tooltip vertically (press shift-tab twice)')).click(function () {
+        var expandlink = $('<a/>').attr('href', "#").attr('role', "button").addClass('ui-button')
+        .attr('id', 'expanbutton').attr('title', i18n.msg._('Grow the tooltip vertically (press shift-tab twice)')).click(function () {
             that.expand();
             event.preventDefault();
         }).append(
@@ -127,7 +127,7 @@ define([
         this.remove_and_cancel_tooltip();
     };
 
-    // grow the tooltip verticaly
+    // grow the tooltip vertically
     Tooltip.prototype.expand = function () {
         this.text.removeClass('smalltooltip');
         this.text.addClass('bigtooltip');
@@ -244,9 +244,9 @@ define([
     };
 
     // put the tooltip in a sicky state for 10 seconds
-    // it won't be removed by remove_and_cancell() unless you called with
+    // it won't be removed by remove_and_cancel() unless you called with
     // the first parameter set to true.
-    // remove_and_cancell_tooltip(true)
+    // remove_and_cancel_tooltip(true)
     Tooltip.prototype.stick = function (time) {
         time = (time !== undefined) ? time : 10;
         var that = this;

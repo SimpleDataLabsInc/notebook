@@ -11,8 +11,11 @@ import binascii
 import datetime
 import errno
 import gettext
+import hashlib
+import hmac
 import importlib
 import io
+import ipaddress
 import json
 import logging
 import mimetypes
@@ -23,17 +26,19 @@ import select
 import signal
 import socket
 import sys
+import tempfile
 import threading
 import time
 import warnings
 import webbrowser
-import hmac
 
-try: #PY3
-    from base64 import encodebytes
-except ImportError: #PY2
-    from base64 import encodestring as encodebytes
+try:
+    import resource
+except ImportError:
+    # Windows
+    resource = None
 
+from base64 import encodebytes
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -67,11 +72,6 @@ from notebook import (
     __version__,
 )
 
-# py23 compatibility
-try:
-    raw_input = raw_input
-except NameError:
-    raw_input = input
 
 from .base.handlers import Template404, RedirectWithParams
 from .log import log_request
@@ -81,6 +81,7 @@ from .services.contents.manager import ContentsManager
 from .services.contents.filemanager import FileContentsManager
 from .services.contents.largefilemanager import LargeFileManager
 from .services.sessions.sessionmanager import SessionManager
+from .gateway.managers import GatewayKernelManager, GatewayKernelSpecManager, GatewaySessionManager, GatewayClient
 
 from .auth.login import LoginHandler
 from .auth.logout import LogoutHandler
@@ -93,7 +94,7 @@ from jupyter_core.application import (
 )
 from jupyter_core.paths import jupyter_config_path
 from jupyter_client import KernelManager
-from jupyter_client.kernelspec import KernelSpecManager, NoSuchKernel, NATIVE_KERNEL_NAME
+from jupyter_client.kernelspec import KernelSpecManager
 from jupyter_client.session import Session
 from nbformat.sign import NotebookNotary
 from traitlets import (
@@ -105,7 +106,7 @@ from jupyter_core.paths import jupyter_runtime_dir, jupyter_path
 from notebook._sysinfo import get_sys_info
 
 from ._tz import utcnow, utcfromtimestamp
-from .utils import url_path_join, check_pid, url_escape
+from .utils import url_path_join, check_pid, url_escape, urljoin, pathname2url
 
 #-----------------------------------------------------------------------------
 # Module globals
@@ -134,7 +135,6 @@ def random_ports(port, n):
 
 def load_handlers(name):
     """Load the (URL pattern, handler) tuples for each component."""
-    name = 'notebook.' + name
     mod = __import__(name, fromlist=['default_handlers'])
     return mod.default_handlers
 
@@ -142,25 +142,26 @@ def load_handlers(name):
 # The Tornado web application
 #-----------------------------------------------------------------------------
 
+
 class NotebookWebApplication(web.Application):
 
     def __init__(self, jupyter_app, kernel_manager, contents_manager,
                  session_manager, kernel_spec_manager,
-                 config_manager, log,
+                 config_manager, extra_services, log,
                  base_url, default_url, settings_overrides, jinja_env_options):
-
 
         settings = self.init_settings(
             jupyter_app, kernel_manager, contents_manager,
-            session_manager, kernel_spec_manager, config_manager, log,
-            base_url, default_url, settings_overrides, jinja_env_options)
+            session_manager, kernel_spec_manager, config_manager,
+            extra_services, log, base_url,
+            default_url, settings_overrides, jinja_env_options)
         handlers = self.init_handlers(settings)
 
         super(NotebookWebApplication, self).__init__(handlers, **settings)
 
     def init_settings(self, jupyter_app, kernel_manager, contents_manager,
                       session_manager, kernel_spec_manager,
-                      config_manager,
+                      config_manager, extra_services,
                       log, base_url, default_url, settings_overrides,
                       jinja_env_options=None):
 
@@ -211,7 +212,7 @@ class NotebookWebApplication(web.Application):
         now = utcnow()
         
         root_dir = contents_manager.root_dir
-        home = os.path.expanduser('~')
+        home = py3compat.str_to_unicode(os.path.expanduser('~'), encoding=sys.getfilesystemencoding()) 
         if root_dir.startswith(home + os.path.sep):
             # collapse $HOME to ~
             root_dir = '~' + root_dir[len(home):]
@@ -232,17 +233,12 @@ class NotebookWebApplication(web.Application):
             },
             version_hash=version_hash,
             ignore_minified_js=jupyter_app.ignore_minified_js,
-            
+
             # rate limits
             iopub_msg_rate_limit=jupyter_app.iopub_msg_rate_limit,
             iopub_data_rate_limit=jupyter_app.iopub_data_rate_limit,
             rate_limit_window=jupyter_app.rate_limit_window,
 
-            # maximum request sizes - support saving larger notebooks
-            # tornado defaults are 100 MiB, we increase it to 0.5 GiB
-            max_body_size = 512 * 1024 * 1024,
-            max_buffer_size = 512 * 1024 * 1024,
-            
             # authentication
             cookie_secret=jupyter_app.cookie_secret,
             login_url=url_path_join(base_url,'/login'),
@@ -251,6 +247,8 @@ class NotebookWebApplication(web.Application):
             password=jupyter_app.password,
             xsrf_cookies=True,
             disable_check_xsrf=jupyter_app.disable_check_xsrf,
+            allow_remote_access=jupyter_app.allow_remote_access,
+            local_hostnames=jupyter_app.local_hostnames,
 
             # managers
             kernel_manager=kernel_manager,
@@ -259,13 +257,20 @@ class NotebookWebApplication(web.Application):
             kernel_spec_manager=kernel_spec_manager,
             config_manager=config_manager,
 
+            # handlers
+            extra_services=extra_services,
+
             # Jupyter stuff
             started=now,
+            # place for extensions to register activity
+            # so that they can prevent idle-shutdown
+            last_activity_times={},
             jinja_template_vars=jupyter_app.jinja_template_vars,
             nbextensions_path=jupyter_app.nbextensions_path,
             websocket_url=jupyter_app.websocket_url,
             mathjax_url=jupyter_app.mathjax_url,
             mathjax_config=jupyter_app.mathjax_config,
+            shutdown_button=jupyter_app.quit_button,
             config=jupyter_app.config,
             config_dir=jupyter_app.config_dir,
             allow_password_change=jupyter_app.allow_password_change,
@@ -283,26 +288,41 @@ class NotebookWebApplication(web.Application):
 
         # Order matters. The first handler to match the URL will handle the request.
         handlers = []
-        handlers.extend(load_handlers('tree.handlers'))
+        # load extra services specified by users before default handlers
+        for service in settings['extra_services']:
+            handlers.extend(load_handlers(service))
+        handlers.extend(load_handlers('notebook.tree.handlers'))
         handlers.extend([(r"/login", settings['login_handler_class'])])
         handlers.extend([(r"/logout", settings['logout_handler_class'])])
-        handlers.extend(load_handlers('files.handlers'))
-        handlers.extend(load_handlers('view.handlers'))
-        handlers.extend(load_handlers('notebook.handlers'))
-        handlers.extend(load_handlers('nbconvert.handlers'))
-        handlers.extend(load_handlers('bundler.handlers'))
-        handlers.extend(load_handlers('kernelspecs.handlers'))
-        handlers.extend(load_handlers('edit.handlers'))
-        handlers.extend(load_handlers('services.api.handlers'))
-        handlers.extend(load_handlers('services.config.handlers'))
-        handlers.extend(load_handlers('services.kernels.handlers'))
-        handlers.extend(load_handlers('services.contents.handlers'))
-        handlers.extend(load_handlers('services.sessions.handlers'))
-        handlers.extend(load_handlers('services.nbconvert.handlers'))
-        handlers.extend(load_handlers('services.kernelspecs.handlers'))
-        handlers.extend(load_handlers('services.security.handlers'))
-        handlers.extend(load_handlers('services.shutdown'))
+        handlers.extend(load_handlers('notebook.files.handlers'))
+        handlers.extend(load_handlers('notebook.view.handlers'))
+        handlers.extend(load_handlers('notebook.notebook.handlers'))
+        handlers.extend(load_handlers('notebook.nbconvert.handlers'))
+        handlers.extend(load_handlers('notebook.bundler.handlers'))
+        handlers.extend(load_handlers('notebook.kernelspecs.handlers'))
+        handlers.extend(load_handlers('notebook.edit.handlers'))
+        handlers.extend(load_handlers('notebook.services.api.handlers'))
+        handlers.extend(load_handlers('notebook.services.config.handlers'))
+        handlers.extend(load_handlers('notebook.services.contents.handlers'))
+        handlers.extend(load_handlers('notebook.services.sessions.handlers'))
+        handlers.extend(load_handlers('notebook.services.nbconvert.handlers'))
+        handlers.extend(load_handlers('notebook.services.security.handlers'))
+        handlers.extend(load_handlers('notebook.services.shutdown'))
+        handlers.extend(load_handlers('notebook.services.kernels.handlers'))
+        handlers.extend(load_handlers('notebook.services.kernelspecs.handlers'))
+
         handlers.extend(settings['contents_manager'].get_extra_handlers())
+
+        # If gateway mode is enabled, replace appropriate handlers to perform redirection
+        if GatewayClient.instance().gateway_enabled:
+            # for each handler required for gateway, locate its pattern
+            # in the current list and replace that entry...
+            gateway_handlers = load_handlers('notebook.gateway.handlers')
+            for i, gwh in enumerate(gateway_handlers):
+                for j, h in enumerate(handlers):
+                    if gwh[0] == h[0]:
+                        handlers[j] = (gwh[0], gwh[1])
+                        break
 
         handlers.append(
             (r"/nbextensions/(.*)", FileFindHandler, {
@@ -317,7 +337,7 @@ class NotebookWebApplication(web.Application):
             })
         )
         # register base handlers last
-        handlers.extend(load_handlers('base.handlers'))
+        handlers.extend(load_handlers('notebook.base.handlers'))
         # set the URL that will be redirected from `/`
         handlers.append(
             (r'/?', RedirectWithParams, {
@@ -354,6 +374,7 @@ class NotebookWebApplication(web.Application):
             sources.append(self.settings['terminal_last_activity'])
         except KeyError:
             pass
+        sources.extend(self.settings['last_activity_times'].values())
         return max(sources)
 
 
@@ -397,7 +418,7 @@ def shutdown_server(server_info, timeout=5, log=None):
 
     # Poll to see if it shut down.
     for _ in range(timeout*10):
-        if check_pid(pid):
+        if not check_pid(pid):
             if log: log.debug("Server PID %s is gone", pid)
             return True
         time.sleep(0.1)
@@ -410,7 +431,7 @@ def shutdown_server(server_info, timeout=5, log=None):
 
     # Poll to see if it shut down.
     for _ in range(timeout * 10):
-        if check_pid(pid):
+        if not check_pid(pid):
             if log: log.debug("Server PID %s is gone", pid)
             return True
         time.sleep(0.1)
@@ -536,6 +557,7 @@ aliases.update({
     'notebook-dir': 'NotebookApp.notebook_dir',
     'browser': 'NotebookApp.browser',
     'pylab': 'NotebookApp.pylab',
+    'gateway-url': 'GatewayClient.url',
 })
 
 #-----------------------------------------------------------------------------
@@ -554,9 +576,9 @@ class NotebookApp(JupyterApp):
     flags = flags
     
     classes = [
-        KernelManager, Session, MappingKernelManager,
+        KernelManager, Session, MappingKernelManager, KernelSpecManager,
         ContentsManager, FileContentsManager, NotebookNotary,
-        KernelSpecManager,
+        GatewayKernelManager, GatewayKernelSpecManager, GatewaySessionManager, GatewayClient,
     ]
     flags = Dict(flags)
     aliases = Dict(aliases)
@@ -623,6 +645,24 @@ class NotebookApp(JupyterApp):
         help=_("Whether to allow the user to run the notebook as root.")
     )
 
+    use_redirect_file = Bool(True, config=True,
+        help="""Disable launching browser by redirect file
+
+     For versions of notebook > 5.7.2, a security feature measure was added that 
+     prevented the authentication token used to launch the browser from being visible.
+     This feature makes it difficult for other users on a multi-user system from
+     running code in your Jupyter session as you.
+
+     However, some environments (like Windows Subsystem for Linux (WSL) and Chromebooks),
+     launching a browser using a redirect file can lead the browser failing to load. 
+     This is because of the difference in file structures/paths between the runtime and 
+     the browser. 
+     
+     Disabling this setting to False will disable this behavior, allowing the browser 
+     to launch by using a URL and visible token (as before).
+     """
+    )
+
     default_url = Unicode('/tree', config=True,
         help=_("The default URL to redirect to from `/`")
     )
@@ -654,6 +694,19 @@ class NotebookApp(JupyterApp):
             value = u''
         return value
 
+    custom_display_url = Unicode(u'', config=True,
+        help=_("""Override URL shown to users.
+
+        Replace actual URL, including protocol, address, port and base URL,
+        with the given value when displaying URL to the users. Do not change
+        the actual connection URL. If authentication token is enabled, the
+        token is added to the custom URL automatically.
+
+        This option is intended to be used when the URL to display to the user
+        cannot be determined reliably by the Jupyter notebook server (proxified
+        or containerized setups for example).""")
+    )
+
     port = Integer(8888, config=True,
         help=_("The port the notebook server will listen on.")
     )
@@ -681,37 +734,38 @@ class NotebookApp(JupyterApp):
     @default('cookie_secret_file')
     def _default_cookie_secret_file(self):
         return os.path.join(self.runtime_dir, 'notebook_cookie_secret')
-    
+
     cookie_secret = Bytes(b'', config=True,
         help="""The random bytes used to secure cookies.
         By default this is a new random number every time you start the Notebook.
         Set it to a value in a config file to enable logins to persist across server sessions.
-        
+
         Note: Cookie secrets should be kept private, do not share config files with
         cookie_secret stored in plaintext (you can read the value from a file).
         """
     )
-    
+
     @default('cookie_secret')
     def _default_cookie_secret(self):
         if os.path.exists(self.cookie_secret_file):
             with io.open(self.cookie_secret_file, 'rb') as f:
                 key =  f.read()
         else:
-            key = encodebytes(os.urandom(1024))
+            key = encodebytes(os.urandom(32))
             self._write_cookie_secret_file(key)
-        h = hmac.HMAC(key)
-        h.digest_size = len(key)
+        h = hmac.new(key, digestmod=hashlib.sha256)
         h.update(self.password.encode())
         return h.digest()
 
-
-    
     def _write_cookie_secret_file(self, secret):
         """write my secret to my secret_file"""
         self.log.info(_("Writing notebook server cookie secret to %s"), self.cookie_secret_file)
-        with io.open(self.cookie_secret_file, 'wb') as f:
-            f.write(secret)
+        try:
+            with io.open(self.cookie_secret_file, 'wb') as f:
+                f.write(secret)
+        except OSError as e:
+            self.log.error(_("Failed to write cookie secret to %s: %s"),
+                           self.cookie_secret_file, e)
         try:
             os.chmod(self.cookie_secret_file, 0o600)
         except OSError:
@@ -730,12 +784,6 @@ class NotebookApp(JupyterApp):
         """)
     ).tag(config=True)
 
-    one_time_token = Unicode(
-        help=_("""One-time token used for opening a browser.
-        Once used, this token cannot be used again.
-        """)
-    )
-
     _token_generated = True
 
     @default('token')
@@ -750,6 +798,48 @@ class NotebookApp(JupyterApp):
         else:
             self._token_generated = True
             return binascii.hexlify(os.urandom(24)).decode('ascii')
+
+    max_body_size = Integer(512 * 1024 * 1024, config=True,
+        help="""
+        Sets the maximum allowed size of the client request body, specified in 
+        the Content-Length request header field. If the size in a request 
+        exceeds the configured value, a malformed HTTP message is returned to
+        the client.
+
+        Note: max_body_size is applied even in streaming mode.
+        """
+    )
+
+    max_buffer_size = Integer(512 * 1024 * 1024, config=True,
+        help="""
+        Gets or sets the maximum amount of memory, in bytes, that is allocated 
+        for use by the buffer manager.
+        """
+    )
+
+    min_open_files_limit = Integer(config=True,
+        help="""
+        Gets or sets a lower bound on the open file handles process resource
+        limit. This may need to be increased if you run into an
+        OSError: [Errno 24] Too many open files.
+        This is not applicable when running on Windows.
+        """)
+
+    @default('min_open_files_limit')
+    def _default_min_open_files_limit(self):
+        if resource is None:
+            # Ignoring min_open_files_limit because the limit cannot be adjusted (for example, on Windows)
+            return None
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+
+        DEFAULT_SOFT = 4096
+        if hard >= DEFAULT_SOFT:
+            return DEFAULT_SOFT
+
+        self.log.debug("Default value for min_open_files_limit is ignored (hard=%r, soft=%r)", hard, soft)
+
+        return soft
 
     @observe('token')
     def _token_changed(self, change):
@@ -805,6 +895,63 @@ class NotebookApp(JupyterApp):
         """
     )
 
+    allow_remote_access = Bool(config=True,
+       help="""Allow requests where the Host header doesn't point to a local server
+
+       By default, requests get a 403 forbidden response if the 'Host' header
+       shows that the browser thinks it's on a non-local domain.
+       Setting this option to True disables this check.
+
+       This protects against 'DNS rebinding' attacks, where a remote web server
+       serves you a page and then changes its DNS to send later requests to a
+       local IP, bypassing same-origin checks.
+
+       Local IP addresses (such as 127.0.0.1 and ::1) are allowed as local,
+       along with hostnames configured in local_hostnames.
+       """)
+
+    @default('allow_remote_access')
+    def _default_allow_remote(self):
+        """Disallow remote access if we're listening only on loopback addresses"""
+
+        # if blank, self.ip was configured to "*" meaning bind to all interfaces,
+        # see _valdate_ip
+        if self.ip == "":
+            return True
+
+        try:
+            addr = ipaddress.ip_address(self.ip)
+        except ValueError:
+            # Address is a hostname
+            for info in socket.getaddrinfo(self.ip, self.port, 0, socket.SOCK_STREAM):
+                addr = info[4][0]
+                if not py3compat.PY3:
+                    addr = addr.decode('ascii')
+
+                try:
+                    parsed = ipaddress.ip_address(addr.split('%')[0])
+                except ValueError:
+                    self.log.warning("Unrecognised IP address: %r", addr)
+                    continue
+
+                # Macs map localhost to 'fe80::1%lo0', a link local address
+                # scoped to the loopback interface. For now, we'll assume that
+                # any scoped link-local address is effectively local.
+                if not (parsed.is_loopback
+                        or (('%' in addr) and parsed.is_link_local)):
+                    return True
+            return False
+        else:
+            return not addr.is_loopback
+
+    local_hostnames = List(Unicode(), ['localhost'], config=True,
+       help="""Hostnames to allow as local when allow_remote_access is False.
+
+       Local IP addresses (such as 127.0.0.1 and ::1) are automatically accepted
+       as local as well.
+       """
+    )
+
     open_browser = Bool(True, config=True,
                         help="""Whether to open in a browser after starting.
                         The specific browser used is platform dependent and
@@ -826,9 +973,11 @@ class NotebookApp(JupyterApp):
         `new` argument passed to the standard library method `webbrowser.open`.
         The behaviour is not guaranteed, but depends on browser support. Valid
         values are:
-            2 opens a new tab,
-            1 opens a new window,
-            0 opens in an existing window.
+
+         - 2 opens a new tab,
+         - 1 opens a new window,
+         - 0 opens in an existing window.
+
         See the `webbrowser.open` documentation for details.
         """))
 
@@ -862,6 +1011,10 @@ class NotebookApp(JupyterApp):
     cookie_options = Dict(config=True,
         help=_("Extra keyword arguments to pass to `set_secure_cookie`."
              " See tornado's set_secure_cookie docs for details.")
+    )
+    get_secure_cookie_kwargs = Dict(config=True,
+        help=_("Extra keyword arguments to pass to `get_secure_cookie`."
+             " See tornado's get_secure_cookie docs for details.")
     )
     ssl_options = Dict(config=True,
             help=_("""Supply SSL options for the tornado HTTPServer.
@@ -953,6 +1106,10 @@ class NotebookApp(JupyterApp):
     extra_nbextensions_path = List(Unicode(), config=True,
         help=_("""extra paths to look for Javascript notebook extensions""")
     )
+
+    extra_services = List(Unicode(), config=True,
+        help=_("""handlers that should be loaded at higher priority than the default services""")
+    )
     
     @property
     def nbextensions_path(self):
@@ -1005,6 +1162,11 @@ class NotebookApp(JupyterApp):
     @observe('mathjax_config')
     def _update_mathjax_config(self, change):
         self.log.info(_("Using MathJax configuration file: %s"), change['new'])
+        
+    quit_button = Bool(True, config=True,
+        help="""If True, display a button in the dashboard to quit
+        (shutdown the notebook server)."""
+    )
 
     contents_manager_class = Type(
         default_value=LargeFileManager,
@@ -1070,6 +1232,13 @@ class NotebookApp(JupyterApp):
     def _default_info_file(self):
         info_file = "nbserver-%s.json" % os.getpid()
         return os.path.join(self.runtime_dir, info_file)
+
+    browser_open_file = Unicode()
+
+    @default('browser_open_file')
+    def _default_browser_open_file(self):
+        basename = "nbserver-%s-open.html" % os.getpid()
+        return os.path.join(self.runtime_dir, basename)
     
     pylab = Unicode('disabled', config=True,
         help=_("""
@@ -1117,14 +1286,6 @@ class NotebookApp(JupyterApp):
             raise TraitError(trans.gettext("No such notebook dir: '%r'") % value)
         return value
 
-    @observe('notebook_dir')
-    def _update_notebook_dir(self, change):
-        """Do a bit of validation of the notebook dir."""
-        # setting App.notebook_dir implies setting notebook and kernel dirs as well
-        new = change['new']
-        self.config.FileContentsManager.root_dir = new
-        self.config.MappingKernelManager.root_dir = new
-
     # TODO: Remove me in notebook 5.0
     server_extensions = List(Unicode(), config=True,
         help=(_("DEPRECATED use the nbserver_extensions dict instead"))
@@ -1169,6 +1330,16 @@ class NotebookApp(JupyterApp):
               "0 (the default) disables this automatic shutdown.")
     )
 
+    terminals_enabled = Bool(True, config=True,
+         help=_("""Set to False to disable terminals.
+
+         This does *not* make the notebook server more secure by itself.
+         Anything the user can in a terminal, they can also do in a notebook.
+
+         Terminals may also be automatically disabled if the terminado package
+         is not available.
+         """))
+
     def parse_command_line(self, argv=None):
         super(NotebookApp, self).parse_command_line(argv)
 
@@ -1190,6 +1361,16 @@ class NotebookApp(JupyterApp):
             self.update_config(c)
 
     def init_configurables(self):
+
+        # If gateway server is configured, replace appropriate managers to perform redirection.  To make
+        # this determination, instantiate the GatewayClient config singleton.
+        self.gateway_config = GatewayClient.instance(parent=self)
+
+        if self.gateway_config.gateway_enabled:
+            self.kernel_manager_class = 'notebook.gateway.managers.GatewayKernelManager'
+            self.session_manager_class = 'notebook.gateway.managers.GatewaySessionManager'
+            self.kernel_spec_manager_class = 'notebook.gateway.managers.GatewayKernelSpecManager'
+
         self.kernel_spec_manager = self.kernel_spec_manager_class(
             parent=self,
         )
@@ -1216,7 +1397,7 @@ class NotebookApp(JupyterApp):
 
     def init_logging(self):
         # This prevents double log messages because tornado use a root logger that
-        # self.log is a child of. The logging module dipatches log messages to a log
+        # self.log is a child of. The logging module dispatches log messages to a log
         # and all of its ancenstors until propagate is set to False.
         self.log.propagate = False
         
@@ -1229,6 +1410,23 @@ class NotebookApp(JupyterApp):
         logger.parent = self.log
         logger.setLevel(self.log.level)
     
+    def init_resources(self):
+        """initialize system resources"""
+        if resource is None:
+            self.log.debug('Ignoring min_open_files_limit because the limit cannot be adjusted (for example, on Windows)')
+            return
+
+        old_soft, old_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        soft = self.min_open_files_limit
+        hard = old_hard
+        if old_soft < soft:
+            if hard < soft:
+                hard = soft
+            self.log.debug(
+                'Raising open file limit: soft {}->{}; hard {}->{}'.format(old_soft, soft, old_hard, hard)
+            )
+            resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
     def init_webapp(self):
         """initialize tornado webapp and httpserver"""
         self.tornado_settings['allow_origin'] = self.allow_origin
@@ -1237,10 +1435,8 @@ class NotebookApp(JupyterApp):
             self.tornado_settings['allow_origin_pat'] = re.compile(self.allow_origin_pat)
         self.tornado_settings['allow_credentials'] = self.allow_credentials
         self.tornado_settings['cookie_options'] = self.cookie_options
+        self.tornado_settings['get_secure_cookie_kwargs'] = self.get_secure_cookie_kwargs
         self.tornado_settings['token'] = self.token
-        if (self.open_browser or self.file_to_run) and not self.password:
-            self.one_time_token = binascii.hexlify(os.urandom(24)).decode('ascii')
-            self.tornado_settings['one_time_token'] = self.one_time_token
 
         # ensure default_url starts with base_url
         if not self.default_url.startswith(self.base_url):
@@ -1255,9 +1451,9 @@ class NotebookApp(JupyterApp):
         self.web_app = NotebookWebApplication(
             self, self.kernel_manager, self.contents_manager,
             self.session_manager, self.kernel_spec_manager,
-            self.config_manager,
+            self.config_manager, self.extra_services,
             self.log, self.base_url, self.default_url, self.tornado_settings,
-            self.jinja_environment_options
+            self.jinja_environment_options,
         )
         ssl_options = self.ssl_options
         if self.certfile:
@@ -1272,14 +1468,21 @@ class NotebookApp(JupyterApp):
         else:
             # SSL may be missing, so only import it if it's to be used
             import ssl
-            # Disable SSLv3 by default, since its use is discouraged.
-            ssl_options.setdefault('ssl_version', ssl.PROTOCOL_TLSv1)
+            # PROTOCOL_TLS selects the highest ssl/tls protocol version that both the client and
+            # server support. When PROTOCOL_TLS is not available use PROTOCOL_SSLv23.
+            # PROTOCOL_TLS is new in version 2.7.13, 3.5.3 and 3.6
+            ssl_options.setdefault(
+                'ssl_version',
+                getattr(ssl, 'PROTOCOL_TLS', ssl.PROTOCOL_SSLv23)
+            )
             if ssl_options.get('ca_certs', False):
                 ssl_options.setdefault('cert_reqs', ssl.CERT_REQUIRED)
         
         self.login_handler_class.validate_security(self, ssl_options=ssl_options)
         self.http_server = httpserver.HTTPServer(self.web_app, ssl_options=ssl_options,
-                                                 xheaders=self.trust_xheaders)
+                                                 xheaders=self.trust_xheaders,
+                                                 max_body_size=self.max_body_size,
+                                                 max_buffer_size=self.max_buffer_size)
 
         success = None
         for port in random_ports(self.port, self.port_retries+1):
@@ -1305,12 +1508,22 @@ class NotebookApp(JupyterApp):
     
     @property
     def display_url(self):
-        ip = self.ip if self.ip else _('[all ip addresses on your system]')
-        url = self._url(ip)
+        if self.custom_display_url:
+            url = self.custom_display_url
+            if not url.endswith('/'):
+                url += '/'
+        else:
+            if self.ip in ('', '0.0.0.0'):
+                ip = "%s" % socket.gethostname()
+            else:
+                ip = self.ip
+            url = self._url(ip)
         if self.token:
             # Don't log full token if it came from config
             token = self.token if self._token_generated else '...'
-            url = url_concat(url, {'token': token})
+            url = (url_concat(url, {'token': token})
+                  + '\n or '
+                  + url_concat(self._url('127.0.0.1'), {'token': token}))
         return url
 
     @property
@@ -1323,6 +1536,9 @@ class NotebookApp(JupyterApp):
         return "%s://%s:%i%s" % (proto, ip, self.port, self.base_url)
 
     def init_terminals(self):
+        if not self.terminals_enabled:
+            return
+
         try:
             from .terminal import initialize
             initialize(self.web_app, self.notebook_dir, self.connection_url, self.terminado_settings)
@@ -1400,15 +1616,13 @@ class NotebookApp(JupyterApp):
         # TODO: this should still check, but now we use bower, not git submodule
         pass
 
-    def init_server_extensions(self):
-        """Load any extensions specified by config.
+    def init_server_extension_config(self):
+        """Consolidate server extensions specified by all configs.
 
-        Import the module, then call the load_jupyter_server_extension function,
-        if one exists.
+        The resulting list is stored on self.nbserver_extensions and updates config object.
         
         The extension API is experimental, and may change in future releases.
         """
-        
         # TODO: Remove me in notebook 5.0
         for modulename in self.server_extensions:
             # Don't override disable state of the extension if it already exist
@@ -1427,15 +1641,23 @@ class NotebookApp(JupyterApp):
         manager = ConfigManager(read_config_path=config_path)
         section = manager.get(self.config_file_name)
         extensions = section.get('NotebookApp', {}).get('nbserver_extensions', {})
-
-        for modulename, enabled in self.nbserver_extensions.items():
-            if modulename not in extensions:
-                # not present in `extensions` means it comes from Python config,
-                # so we need to add it.
-                # Otherwise, trust ConfigManager to have loaded it.
-                extensions[modulename] = enabled
-
+        
         for modulename, enabled in sorted(extensions.items()):
+            if modulename not in self.nbserver_extensions:
+                self.config.NotebookApp.nbserver_extensions.update({modulename: enabled})
+                self.nbserver_extensions.update({modulename: enabled})
+
+    def init_server_extensions(self):
+        """Load any extensions specified by config.
+
+        Import the module, then call the load_jupyter_server_extension function,
+        if one exists.
+        
+        The extension API is experimental, and may change in future releases.
+        """
+        
+
+        for modulename, enabled in sorted(self.nbserver_extensions.items()):
             if enabled:
                 try:
                     mod = importlib.import_module(modulename)
@@ -1449,11 +1671,18 @@ class NotebookApp(JupyterApp):
                                   exc_info=True)
 
     def init_mime_overrides(self):
-        # On some Windows machines, an application has registered an incorrect
-        # mimetype for CSS in the registry. Tornado uses this when serving
-        # .css files, causing browsers to reject the stylesheet. We know the
-        # mimetype always needs to be text/css, so we override it here.
+        # On some Windows machines, an application has registered incorrect
+        # mimetypes in the registry.
+        # Tornado uses this when serving .css and .js files, causing browsers to
+        # reject these files. We know the mimetype always needs to be text/css for css
+        # and application/javascript for JS, so we override it here
+        # and explicitly tell the mimetypes to not trust the Windows registry
+        if os.name == 'nt':
+            # do not trust windows registry, which regularly has bad info
+            mimetypes.init(files=[])
+        # ensure css, js are correct, which are required for pages to function
         mimetypes.add_type('text/css', '.css')
+        mimetypes.add_type('application/javascript', '.js')
 
 
     def shutdown_no_activity(self):
@@ -1486,13 +1715,49 @@ class NotebookApp(JupyterApp):
             pc = ioloop.PeriodicCallback(self.shutdown_no_activity, 60000)
             pc.start()
 
+    def _init_asyncio_patch(self):
+        """set default asyncio policy to be compatible with tornado
+
+        Tornado 6 (at least) is not compatible with the default
+        asyncio implementation on Windows
+
+        Pick the older SelectorEventLoopPolicy on Windows
+        if the known-incompatible default policy is in use.
+
+        do this as early as possible to make it a low priority and overrideable
+
+        ref: https://github.com/tornadoweb/tornado/issues/2608
+
+        FIXME: if/when tornado supports the defaults in asyncio,
+               remove and bump tornado requirement for py38
+        """
+        if sys.platform.startswith("win") and sys.version_info >= (3, 8):
+            import asyncio
+            try:
+                from asyncio import (
+                    WindowsProactorEventLoopPolicy,
+                    WindowsSelectorEventLoopPolicy,
+                )
+            except ImportError:
+                pass
+                # not affected
+            else:
+                if type(asyncio.get_event_loop_policy()) is WindowsProactorEventLoopPolicy:
+                    # WindowsProactorEventLoopPolicy is not compatible with tornado 6
+                    # fallback to the pre-3.8 default of Selector
+                    asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+
     @catch_config_error
     def initialize(self, argv=None):
+        self._init_asyncio_patch()
+
         super(NotebookApp, self).initialize(argv)
         self.init_logging()
         if self._dispatching:
             return
+        self.init_resources()
         self.init_configurables()
+        self.init_server_extension_config()
         self.init_components()
         self.init_webapp()
         self.init_terminals()
@@ -1512,15 +1777,18 @@ class NotebookApp(JupyterApp):
         self.log.info(kernel_msg % n_kernels)
         self.kernel_manager.shutdown_all()
 
-    def notebook_info(self):
+    def notebook_info(self, kernel_count=True):
         "Return the current working directory and the server url information"
         info = self.contents_manager.info_string() + "\n"
-        n_kernels = len(self.kernel_manager.list_kernel_ids())
-        kernel_msg = trans.ngettext("%d active kernel", "%d active kernels", n_kernels)
-        info += kernel_msg % n_kernels
-        info += "\n"
+        if kernel_count:
+            n_kernels = len(self.kernel_manager.list_kernel_ids())
+            kernel_msg = trans.ngettext("%d active kernel", "%d active kernels", n_kernels)
+            info += kernel_msg % n_kernels
+            info += "\n"
         # Format the info so that the URL fits on a single line in 80 char display
         info += _("The Jupyter Notebook is running at:\n%s") % self.display_url
+        if self.gateway_config.gateway_enabled:
+            info += _("\nKernels will be managed by the Gateway server running at:\n%s") % self.gateway_config.url
         return info
 
     def server_info(self):
@@ -1538,12 +1806,16 @@ class NotebookApp(JupyterApp):
 
     def write_server_info_file(self):
         """Write the result of server_info() to the JSON file info_file."""
-        with open(self.info_file, 'w') as f:
-            json.dump(self.server_info(), f, indent=2, sort_keys=True)
+        try:
+            with open(self.info_file, 'w') as f:
+                json.dump(self.server_info(), f, indent=2, sort_keys=True)
+        except OSError as e:
+            self.log.error(_("Failed to write server-info to %s: %s"),
+                           self.info_file, e)
 
     def remove_server_info_file(self):
         """Remove the nbserver-<pid>.json file created for this server.
-        
+
         Ignores the error raised when the file has already been removed.
         """
         try:
@@ -1551,6 +1823,76 @@ class NotebookApp(JupyterApp):
         except OSError as e:
             if e.errno != errno.ENOENT:
                 raise
+
+    def write_browser_open_file(self):
+        """Write an nbserver-<pid>-open.html file
+
+        This can be used to open the notebook in a browser
+        """
+        # default_url contains base_url, but so does connection_url
+        open_url = self.default_url[len(self.base_url):]
+
+        with open(self.browser_open_file, 'w', encoding='utf-8') as f:
+            self._write_browser_open_file(open_url, f)
+
+    def _write_browser_open_file(self, url, fh):
+        if self.token:
+            url = url_concat(url, {'token': self.token})
+        url = url_path_join(self.connection_url, url)
+
+        jinja2_env = self.web_app.settings['jinja2_env']
+        template = jinja2_env.get_template('browser-open.html')
+        fh.write(template.render(open_url=url))
+
+    def remove_browser_open_file(self):
+        """Remove the nbserver-<pid>-open.html file created for this server.
+
+        Ignores the error raised when the file has already been removed.
+        """
+        try:
+            os.unlink(self.browser_open_file)
+        except OSError as e:
+            if e.errno != errno.ENOENT:
+                raise
+
+    def launch_browser(self):
+        try:
+            browser = webbrowser.get(self.browser or None)
+        except webbrowser.Error as e:
+            self.log.warning(_('No web browser found: %s.') % e)
+            browser = None
+
+        if not browser:
+            return
+
+        if not self.use_redirect_file:
+            uri = self.default_url[len(self.base_url):]
+
+            if self.token:
+                uri = url_concat(uri, {'token': self.token})
+
+        if self.file_to_run:
+            if not os.path.exists(self.file_to_run):
+                self.log.critical(_("%s does not exist") % self.file_to_run)
+                self.exit(1)
+
+            relpath = os.path.relpath(self.file_to_run, self.notebook_dir)
+            uri = url_escape(url_path_join('notebooks', *relpath.split(os.sep)))
+
+            # Write a temporary file to open in the browser
+            fd, open_file = tempfile.mkstemp(suffix='.html')
+            with open(fd, 'w', encoding='utf-8') as fh:
+                self._write_browser_open_file(uri, fh)
+        else:
+            open_file = self.browser_open_file
+
+        if self.use_redirect_file:
+            assembled_url = urljoin('file:', pathname2url(open_file))
+        else:
+            assembled_url = url_path_join(self.connection_url, uri)
+        
+        b = lambda: browser.open(assembled_url, new=self.webbrowser_open_new)                            
+        threading.Thread(target=b).start()
 
     def start(self):
         """ Start the Notebook server app, after initialization
@@ -1571,7 +1913,7 @@ class NotebookApp(JupyterApp):
                 self.exit(1)
 
         info = self.log.info
-        for line in self.notebook_info().split("\n"):
+        for line in self.notebook_info(kernel_count=False).split("\n"):
             info(line)
         info(_("Use Control-C to stop this server and shut down all kernels (twice to skip confirmation)."))
         if 'dev' in notebook.__version__:
@@ -1581,39 +1923,20 @@ class NotebookApp(JupyterApp):
                  "resources section at https://jupyter.org/community.html."))
 
         self.write_server_info_file()
+        self.write_browser_open_file()
 
         if self.open_browser or self.file_to_run:
-            try:
-                browser = webbrowser.get(self.browser or None)
-            except webbrowser.Error as e:
-                self.log.warning(_('No web browser found: %s.') % e)
-                browser = None
-            
-            if self.file_to_run:
-                if not os.path.exists(self.file_to_run):
-                    self.log.critical(_("%s does not exist") % self.file_to_run)
-                    self.exit(1)
-
-                relpath = os.path.relpath(self.file_to_run, self.notebook_dir)
-                uri = url_escape(url_path_join('notebooks', *relpath.split(os.sep)))
-            else:
-                # default_url contains base_url, but so does connection_url
-                uri = self.default_url[len(self.base_url):]
-            if self.one_time_token:
-                uri = url_concat(uri, {'token': self.one_time_token})
-            if browser:
-                b = lambda : browser.open(url_path_join(self.connection_url, uri),
-                                          new=self.webbrowser_open_new)
-                threading.Thread(target=b).start()
+            self.launch_browser()
 
         if self.token and self._token_generated:
             # log full URL with generated token, so there's a copy/pasteable link
             # with auth info.
             self.log.critical('\n'.join([
                 '\n',
-                'Copy/paste this URL into your browser when you connect for the first time,',
-                'to login with a token:',
-                '    %s' % url_concat(self.connection_url, {'token': self.token}),
+                'To access the notebook, open this file in a browser:',
+                '    %s' % urljoin('file:', pathname2url(self.browser_open_file)),
+                'Or copy and paste one of these URLs:',
+                '    %s' % self.display_url,
             ]))
 
         self.io_loop = ioloop.IOLoop.current()
@@ -1628,6 +1951,7 @@ class NotebookApp(JupyterApp):
             info(_("Interrupted..."))
         finally:
             self.remove_server_info_file()
+            self.remove_browser_open_file()
             self.cleanup_kernels()
 
     def stop(self):
@@ -1652,7 +1976,7 @@ def list_running_servers(runtime_dir=None):
         return
 
     for file_name in os.listdir(runtime_dir):
-        if file_name.startswith('nbserver-'):
+        if re.match('nbserver-(.+).json', file_name):
             with io.open(os.path.join(runtime_dir, file_name), encoding='utf-8') as f:
                 info = json.load(f)
 

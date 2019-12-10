@@ -7,13 +7,14 @@ import io
 import os
 import zipfile
 
-from tornado import web, escape
+from tornado import gen, web, escape
 from tornado.log import app_log
 
 from ..base.handlers import (
     IPythonHandler, FilesRedirectHandler,
     path_regex,
 )
+from ..utils import maybe_future
 from nbformat import from_dict
 
 from ipython_genutils.py3compat import cast_bytes
@@ -40,6 +41,7 @@ def respond_zip(handler, name, output, resources):
     zip_filename = os.path.splitext(name)[0] + '.zip'
     handler.set_attachment_header(zip_filename)
     handler.set_header('Content-Type', 'application/zip')
+    handler.set_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
 
     # Prepare the zip file
     buffer = io.BytesIO()
@@ -77,7 +79,15 @@ class NbconvertFileHandler(IPythonHandler):
 
     SUPPORTED_METHODS = ('GET',)
 
+    @property
+    def content_security_policy(self):
+        # In case we're serving HTML/SVG, confine any Javascript to a unique
+        # origin so it can't interact with the notebook server.
+        return super(NbconvertFileHandler, self).content_security_policy + \
+               "; sandbox allow-scripts"
+
     @web.authenticated
+    @gen.coroutine
     def get(self, format, path):
 
         exporter = get_exporter(format, config=self.config, log=self.log)
@@ -91,7 +101,7 @@ class NbconvertFileHandler(IPythonHandler):
         else:
             ext_resources_dir = None
 
-        model = self.contents_manager.get(path=path)
+        model = yield maybe_future(self.contents_manager.get(path=path))
         name = model['name']
         if model['type'] != 'notebook':
             # not a notebook, redirect to files
@@ -138,10 +148,18 @@ class NbconvertFileHandler(IPythonHandler):
             self.set_header('Content-Type',
                             '%s; charset=utf-8' % exporter.output_mimetype)
 
+        self.set_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
         self.finish(output)
 
 class NbconvertPostHandler(IPythonHandler):
     SUPPORTED_METHODS = ('POST',)
+
+    @property
+    def content_security_policy(self):
+        # In case we're serving HTML/SVG, confine any Javascript to a unique
+        # origin so it can't interact with the notebook server.
+        return super(NbconvertPostHandler, self).content_security_policy + \
+               "; sandbox allow-scripts"
 
     @web.authenticated
     def post(self, format):

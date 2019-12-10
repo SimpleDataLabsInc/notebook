@@ -13,13 +13,8 @@ import tarfile
 import zipfile
 from os.path import basename, join as pjoin, normpath
 
-try:
-    from urllib.parse import urlparse  # Py3
-    from urllib.request import urlretrieve
-except ImportError:
-    from urlparse import urlparse
-    from urllib import urlretrieve
-
+from urllib.parse import urlparse
+from urllib.request import urlretrieve
 from jupyter_core.paths import (
     jupyter_data_dir, jupyter_config_path, jupyter_path,
     SYSTEM_JUPYTER_PATH, ENV_JUPYTER_PATH,
@@ -28,8 +23,8 @@ from jupyter_core.utils import ensure_dir_exists
 from ipython_genutils.py3compat import string_types, cast_unicode_py2
 from ipython_genutils.tempdir import TemporaryDirectory
 from ._version import __version__
+from .config_manager import BaseJSONConfigManager
 
-from traitlets.config.manager import BaseJSONConfigManager
 from traitlets.utils.importstring import import_item
 
 DEPRECATED_ARGUMENT = object()

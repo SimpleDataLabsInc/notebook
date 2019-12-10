@@ -117,6 +117,7 @@ define([
             }
         },
         'confirm-restart-kernel-and-run-all-cells': {
+            icon: 'fa-forward',
             cmd: i18n.msg._('confirm restart kernel and run all cells'),
             help: i18n.msg._('restart the kernel, then re-run the whole notebook (with dialog)'),
             handler: function (env) {
@@ -294,6 +295,15 @@ define([
                 // scroll into view,
                 // do not call notebook.focus_cell(), or
                 // all the selection get thrown away
+                env.notebook.get_selected_cell().element.focus();
+            }
+        },
+        'select-all' : {
+            cmd: i18n.msg._('select all'),
+            help: i18n.msg._('select all cells'),
+            help_index : 'de',
+            handler : function (env) {
+                env.notebook.select_all();
                 env.notebook.get_selected_cell().element.focus();
             }
         },
@@ -684,19 +694,36 @@ define([
                 }
             }
         },
+        'auto-indent': {
+            cmd: i18n.msg._('automatically indent selection'),
+            help : i18n.msg._('automatically indent selection'),
+            handler : function(env) {
+              // Get selected cell
+              var selected_cell = env.notebook.get_selected_cell();
+              // Execute a CM command
+              selected_cell.code_mirror.execCommand('indentAuto');
+            }
+        },
+        'close-and-halt': {
+            cmd: i18n.msg._('shutdown kernel and close window'),
+            help : i18n.msg._('shutdown kernel and close window'),
+            handler : function(env) {
+                env.notebook.close_and_halt();
+            }
+        }
     };
 
     /**
      * A bunch of `Advance actions` for Jupyter.
      * Cf `Simple Action` plus the following properties.
      *
-     * handler: first argument of the handler is the event that triggerd the action
+     * handler: first argument of the handler is the event that triggered the action
      *      (typically keypress). The handler is responsible for any modification of the
      *      event and event propagation.
      *      Is also responsible for returning false if the event have to be further ignored,
      *      true, to tell keyboard manager that it ignored the event.
      *
-     *      the second parameter of the handler is the environemnt passed to Simple Actions
+     *      the second parameter of the handler is the environment passed to Simple Actions
      *
      **/
     var custom_ignore = {

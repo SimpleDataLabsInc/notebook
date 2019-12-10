@@ -87,7 +87,7 @@ define([
      */
     function Notebook(selector, options) {
         this.config = options.config;
-        this.config.loaded.then(this.validate_config.bind(this))
+        this.config.loaded.then(this.validate_config.bind(this));
         this.class_config = new configmod.ConfigWithDefaults(this.config, 
                                         Notebook.options_default, 'Notebook');
         this.base_url = options.base_url;
@@ -168,7 +168,7 @@ define([
         this.paste_enabled = false;
         this.paste_attachments_enabled = false;
         this.writable = false;
-        // It is important to start out in command mode to match the intial mode
+        // It is important to start out in command mode to match the initial mode
         // of the KeyboardManager.
         this.mode = 'command';
         this.set_dirty(false);
@@ -250,14 +250,15 @@ define([
         
         // prevent assign to miss-typed properties.
         Object.seal(this);
-    };
+    }
 
     Notebook.options_default = {
         // can be any cell type, or the special values of
         // 'above', 'below', or 'selected' to get the value from another cell.
         default_cell_type: 'code',
         Header: true,
-        Toolbar: true
+        Toolbar: true,
+        kill_kernel: false
     };
 
     Notebook.prototype.validate_config = function() {
@@ -282,7 +283,7 @@ define([
         // edited, but is too low on the page, which browsers will do automatically.
         var end_space = $('<div/>')
             .addClass('end_space');
-        end_space.dblclick(function (e) {
+        end_space.dblclick(function () {
             var ncells = that.ncells();
             that.insert_cell_below('code',ncells-1);
         });
@@ -408,9 +409,19 @@ define([
 
         // Firefox 22 broke $(window).on("beforeunload")
         // I'm not sure why or how.
-        window.onbeforeunload = function (e) {
-            // TODO: Make killing the kernel configurable.
-            var kill_kernel = false;
+        window.onbeforeunload = function () {
+            /* Make kill kernel configurable.
+            example in custom.js:
+                var notebook = Jupyter.notebook;
+                var config = notebook.config;
+                var patch = {
+                    Notebook:{
+                        kill_kernel: true
+                    }
+                };
+                config.update(patch);
+            */
+            var kill_kernel = that.class_config.get_sync("kill_kernel");
             if (kill_kernel) {
                 that.session.delete();
             }
@@ -454,7 +465,7 @@ define([
     
 
     Notebook.prototype.show_command_palette = function() {
-        var x = new commandpalette.CommandPalette(this);
+        new commandpalette.CommandPalette(this);
     };
 
     Notebook.prototype.show_shortcuts_editor = function() {
@@ -464,7 +475,7 @@ define([
     /**
      * Trigger a warning dialog about missing functionality from newer minor versions
      */
-    Notebook.prototype.warn_nbformat_minor = function (event) {
+    Notebook.prototype.warn_nbformat_minor = function () {
         var v = 'v' + this.nbformat + '.';
         var orig_vs = v + this.nbformat_minor;
         var this_vs = v + this.current_nbformat_minor;
@@ -572,8 +583,11 @@ define([
         var that = this;
         dialog.edit_metadata({
             md: this.metadata, 
-            callback: function (md) {
-                that.metadata = md;
+            callback: function (new_md) {
+                if(!_.isEqual(that.metadata, new_md)){
+                    that.set_dirty(true);
+                }
+                that.metadata = new_md;
             },
             name: 'Notebook',
             notebook: this,
@@ -588,7 +602,7 @@ define([
      * @return {jQuery} A selector of all cell elements
      */
     Notebook.prototype.get_cell_elements = function () {
-        var container = this.container || $('#notebook-container')
+        var container = this.container || $('#notebook-container');
         return container.find(".cell").not('.cell .cell');
     };
 
@@ -821,6 +835,12 @@ define([
         });
     };
 
+
+    Notebook.prototype.select_all = function(){
+        this.select(0, true);
+        this.select(this.ncells()-1, false);
+    };
+
     Notebook.prototype._contract_selection = function(){
         var i = this.get_selected_index();
         this.select(i, true);
@@ -830,7 +850,7 @@ define([
      * Programmatically select a cell.
      * 
      * @param {integer} index - A cell's index
-     * @param {bool} moveanchor – whether to move the selection
+     * @param {boolean} moveanchor – whether to move the selection
      *               anchor, default to true.
      * @return {Notebook} This notebook
      */
@@ -1120,6 +1140,7 @@ define([
         var cell = this.get_cell(i);
 
         $('#undelete_cell').addClass('disabled');
+        $('#undelete_cell > a').attr('aria-disabled','true');
         if (this.is_valid_cell_index(i)) {
             var old_ncells = this.ncells();
             var ce = this.get_cell_element(i);
@@ -1199,7 +1220,7 @@ define([
         // where they came from. It will do until we have proper undo support.
         undelete_backup.index = cursor_ix_after;
         $('#undelete_cell').removeClass('disabled');
-
+        $('#undelete_cell > a').attr('aria-disabled','false');
         this.undelete_backup_stack.push(undelete_backup);
         this.set_dirty(true);
 
@@ -1242,6 +1263,7 @@ define([
         }
         if (this.undelete_backup_stack.length === 0) {
             $('#undelete_cell').addClass('disabled');
+            $('#undelete_cell > a').attr('aria-disabled','true');
         }
     };
 
@@ -1604,12 +1626,15 @@ define([
             $('#paste_cell_replace').removeClass('disabled')
                 .on('click', function () {that.keyboard_manager.actions.call(
                     'jupyter-notebook:paste-cell-replace');});
+            $('#paste_cell_replace > a').attr('aria-disabled', 'false'); 
             $('#paste_cell_above').removeClass('disabled')
                 .on('click', function () {that.keyboard_manager.actions.call(
                     'jupyter-notebook:paste-cell-above');});
+            $('#paste_cell_above > a').attr('aria-disabled', 'false'); 
             $('#paste_cell_below').removeClass('disabled')
                 .on('click', function () {that.keyboard_manager.actions.call(
                     'jupyter-notebook:paste-cell-below');});
+            $('#paste_cell_below > a').attr('aria-disabled', 'false');         
             this.paste_enabled = true;
         }
     };
@@ -1620,8 +1645,11 @@ define([
     Notebook.prototype.disable_paste = function () {
         if (this.paste_enabled) {
             $('#paste_cell_replace').addClass('disabled').off('click');
+            $('#paste_cell_replace > a').attr('aria-disabled', 'true'); 
             $('#paste_cell_above').addClass('disabled').off('click');
+            $('#paste_cell_above > a').attr('aria-disabled', 'true'); 
             $('#paste_cell_below').addClass('disabled').off('click');
+            $('#paste_cell_below > a').attr('aria-disabled', 'true'); 
             this.paste_enabled = false;
         }
     };
@@ -1752,7 +1780,7 @@ define([
      * Merge a series of cells into one
      *
      * @param {Array} indices - the numeric indices of the cells to be merged
-     * @param {bool} into_last - merge into the last cell instead of the first
+     * @param {boolean} into_last - merge into the last cell instead of the first
      */
     Notebook.prototype.merge_cells = function(indices, into_last) {
         if (indices.length <= 1) {
@@ -1839,9 +1867,9 @@ define([
         var that = this;
         var cell = this.get_selected_cell();
         // The following should not happen as the menu item is greyed out
-        // when those conditions are not fullfilled (see MarkdownCell
+        // when those conditions are not fulfilled (see MarkdownCell
         // unselect/select/unrender handlers)
-        if (cell.cell_type != 'markdown') {
+        if (cell.cell_type !== 'markdown') {
             console.log('Error: insert_image called on non-markdown cell');
             return;
         }
@@ -1910,6 +1938,7 @@ define([
     Notebook.prototype.disable_attachments_paste = function () {
         if (this.paste_attachments_enabled) {
             $('#paste_cell_attachments').addClass('disabled');
+            $('#paste_cell_attachments > a').attr('disabled','true');
             this.paste_attachments_enabled = false;
         }
     };
@@ -1918,9 +1947,9 @@ define([
      * Enable the "Paste Cell Attachments" menu item
      */
     Notebook.prototype.enable_attachments_paste = function () {
-        var that = this;
         if (!this.paste_attachments_enabled) {
             $('#paste_cell_attachments').removeClass('disabled');
+            $('#paste_cell_attachments > a').attr('aria-disabled','false');
             this.paste_attachments_enabled = true;
         }
     };
@@ -1931,8 +1960,10 @@ define([
     Notebook.prototype.set_insert_image_enabled = function(enabled) {
         if (enabled) {
             $('#insert_image').removeClass('disabled');
+            $('#insert_image > a').attr('aria-disabled', 'false');
         } else {
             $('#insert_image').addClass('disabled');
+            $('#insert_image > a').attr('aria-disabled', 'true');
         }
     };
 
@@ -1956,7 +1987,7 @@ define([
      * Hide each code cell's output area.
      */
     Notebook.prototype.collapse_all_output = function () {
-        this.get_cells().map(function (cell, i) {
+        this.get_cells().map(function (cell) {
             if (cell instanceof codecell.CodeCell) {
                 cell.collapse_output();
             }
@@ -1983,7 +2014,7 @@ define([
      * Expand each code cell's output area, and remove scrollbars.
      */
     Notebook.prototype.expand_all_output = function () {
-        this.get_cells().map(function (cell, i) {
+        this.get_cells().map(function (cell) {
             if (cell instanceof codecell.CodeCell) {
                 cell.expand_output();
             }
@@ -2024,7 +2055,7 @@ define([
      * Clear each code cell's output area.
      */
     Notebook.prototype.clear_all_output = function () {
-        this.get_cells().map(function (cell, i) {
+        this.get_cells().map(function (cell) {
             if (cell instanceof codecell.CodeCell) {
                 cell.clear_output();
             }
@@ -2092,7 +2123,7 @@ define([
      * Toggle the output of all cells.
      */
     Notebook.prototype.toggle_all_output = function () {
-        this.get_cells().map(function (cell, i) {
+        this.get_cells().map(function (cell) {
             if (cell instanceof codecell.CodeCell) {
                 cell.toggle_output();
             }
@@ -2134,7 +2165,7 @@ define([
      * Toggle the scrolling of long output on all cells.
      */
     Notebook.prototype.toggle_all_output_scroll = function () {
-        this.get_cells().map(function (cell, i) {
+        this.get_cells().map(function (cell) {
             if (cell instanceof codecell.CodeCell) {
                 cell.toggle_output_scroll();
             }
@@ -2149,7 +2180,7 @@ define([
      * Toggle line numbers in the selected cell's input area.
      */
     Notebook.prototype.cell_toggle_line_numbers = function() {
-        this.get_selected_cells().map(function(cell, i){cell.toggle_line_numbers();});
+        this.get_selected_cells().map(function(cell){cell.toggle_line_numbers();});
     };
 
 
@@ -2157,7 +2188,7 @@ define([
     Notebook.prototype._dispatch_mode = function(spec, newmode){
         this.codemirror_mode = newmode;
         codecell.CodeCell.options_default.cm_config.mode = newmode;
-        this.get_cells().map(function(cell, i) {
+        this.get_cells().map(function(cell) {
             if (cell.cell_type === 'code'){
                 cell.code_mirror.setOption('mode', spec);
                 // This is currently redundant, because cm_config ends up as
@@ -2192,7 +2223,7 @@ define([
         }, function(){
             // on error don't dispatch the new mode as re-setting it later will not work.
             // don't either set to null mode if it has been changed in the meantime
-            if( _mode_equal(newmode, this.codemirror_mode) ){
+            if( _mode_equal(newmode, that.codemirror_mode) ){
                 that._dispatch_mode('null','null');
             }
         });
@@ -2335,7 +2366,6 @@ define([
     };
 
     Notebook.prototype.restart_kernel = function (options) {
-        var that = this;
         var restart_options = {};
         restart_options.confirm = (options || {}).confirm;
         restart_options.dialog = {
@@ -2400,9 +2430,25 @@ define([
     };
 
     /**
+     * 
+     * Halt the kernel and close the notebook window
+     */
+    Notebook.prototype.close_and_halt = function () {
+        var close_window = function () {
+            /**
+             * allow closing of new tabs in Chromium, impossible in FF
+             */
+                window.open('', '_self', '');
+                window.close();
+        };
+            // finish with close on success or failure
+            this.session.delete(close_window, close_window);
+    };
+    
+    /**
      * Execute cells corresponding to the given indices.
      *
-     * @param {list} indices - indices of the cells to execute
+     * @param {Array} indices - indices of the cells to execute
      */
     Notebook.prototype.execute_cells = function (indices) {
         if (indices.length === 0) {
@@ -2550,8 +2596,7 @@ define([
      * @return {string} This notebook's name (excluding file extension)
      */
     Notebook.prototype.get_notebook_name = function () {
-        var nbname = utils.splitext(this.notebook_name)[0];
-        return nbname;
+        return utils.splitext(this.notebook_name)[0];
     };
 
     /**
@@ -2573,11 +2618,7 @@ define([
      */
     Notebook.prototype.test_notebook_name = function (nbname) {
         nbname = nbname || '';
-        if (nbname.length>0 && !this.notebook_name_blacklist_re.test(nbname)) {
-            return true;
-        } else {
-            return false;
-        }
+        return nbname.length > 0 && !this.notebook_name_blacklist_re.test(nbname);
     };
 
     /**
@@ -2730,6 +2771,8 @@ define([
                 $.proxy(that.save_notebook_success, that, start),
                 function (error) {
                     that.events.trigger('notebook_save_failed.Notebook', error);
+                    // This hasn't handled the error, so propagate it up
+                    return Promise.reject(error);
                 }
             );
         };
@@ -2738,15 +2781,19 @@ define([
             return this.contents.get(this.notebook_path, {content: false}).then(
                 function (data) {
                     var last_modified = new Date(data.last_modified);
+                    var last_modified_check_margin = (that.config.data['last_modified_check_margin'] || 0.5) * 1000; // 500 ms
                     // We want to check last_modified (disk) > that.last_modified (our last save)
                     // In some cases the filesystem reports an inconsistent time,
                     // so we allow 0.5 seconds difference before complaining.
-                    if ((last_modified.getTime() - that.last_modified.getTime()) > 500) {  // 500 ms
+                    // This is configurable in nbconfig/notebook.json as `last_modified_check_margin`.
+                    if ((last_modified.getTime() - that.last_modified.getTime()) > last_modified_check_margin) {  
                         console.warn("Last saving was done on `"+that.last_modified+"`("+that._last_modified+"), "+
                                     "while the current file seem to have been saved on `"+data.last_modified+"`");
                         if (that._changed_on_disk_dialog !== null) {
                             // update save callback on the confirmation button
                             that._changed_on_disk_dialog.find('.save-confirm-btn').click(_save);
+                            //Rebind Click Event on Reload
+                            that._changed_on_disk_dialog.find('.btn-warning').click(function () {window.location.reload()});
                             // redisplay existing dialog
                             that._changed_on_disk_dialog.modal('show');
                         } else {
@@ -2778,7 +2825,7 @@ define([
                     } else {
                         return _save();
                     }
-                }, function (error) {
+                }, function () {
                     // maybe it has been deleted or renamed? Go ahead and save.
                     return _save();
                 }
@@ -2829,12 +2876,102 @@ define([
             this.create_checkpoint();
             this._checkpoint_after_save = false;
         }
+        return data;
     };
-    
+
+    Notebook.prototype.save_notebook_as = function() {
+        var that = this;
+        var current_dir = $('body').attr('data-notebook-path').split('/').slice(0, -1).join("/");
+        current_dir = current_dir? current_dir + "/": "";
+        var dialog_body = $('<div/>').append(
+            $('<p/>').addClass('save-message')
+                .text(i18n.msg._('Enter a notebook path relative to notebook dir'))
+        ).append(
+            $('<br/>')
+        ).append(
+            $('<input/>').attr('type','text').attr('size','25')
+            .attr('data-testid', 'save-as')
+            .addClass('form-control')
+        );
+
+        var d = dialog.modal({
+            title: 'Save As',
+            body: dialog_body,
+            keyboard_manager: this.keyboard_manager,
+            notebook: this,
+            buttons: {
+                Cancel: {},
+                Save: {
+                    class: 'btn-primary',
+                    click: function() {
+                        var nb_path = d.find('input').val();
+                        var nb_name = nb_path.split('/').slice(-1).pop();
+                        // If notebook name does not contain extension '.ipynb' add it
+                        var ext = utils.splitext(nb_name)[1];
+                        if (ext === '') {
+                            nb_name = nb_name + '.ipynb';
+                            nb_path = nb_path + '.ipynb';
+                        }
+                        var save_thunk = function() {
+                            var model = {
+                                'type': 'notebook',
+                                'content': that.toJSON(),
+                                'name': nb_name
+                            };
+                            return that.contents.save(nb_path, model)
+                                .then(function(data) {
+                                    d.modal('hide');
+                                    that.notebook_name = data.name;
+                                    that.notebook_path = data.path;
+                                    that.session.rename_notebook(data.path);
+                                    that.events.trigger('notebook_renamed.Notebook', data);
+                                }, function(error) {
+                                    var msg = i18n.msg._(error.message || 'Unknown error saving notebook');
+                                    $(".save-message").html(
+                                        $("<span>")
+                                            .attr("style", "color:red;")
+                                            .text(msg)
+                                    );
+                                });
+                        };
+                        that.contents.get(nb_path, {type: 'notebook', content: false}).then(function(data) {
+                            var warning_body = $('<div/>').append(
+                                $("<p/>").text(i18n.msg._('Notebook with that name exists.')));
+                            dialog.modal({
+                                title: 'Save As',
+                                body: warning_body,
+                                buttons: {Cancel: {},
+                                Overwrite: {
+                                    class: 'btn-warning',
+                                    click: function() {
+                                        return save_thunk();
+                                    }
+                                }
+                            }
+                            });
+                        }, function(err) {
+                            return save_thunk();
+                        });
+                        return false;
+                    }
+                },
+            },
+            open : function () {
+                d.find('input[type="text"]').keydown(function (event) {
+                    if (event.which === keyboard.keycodes.enter) {
+                        d.find('.btn-primary').first().click();
+                        return false;
+                    }
+                });
+                d.find('input[type="text"]').val(current_dir).focus();
+             }
+         });
+    };
+
     /**
      * Update the autosave interval based on the duration of the last save.
      * 
-     * @param {integer} timestamp - when the save request started
+     * @param {integer} start - when the save request started
      */
     Notebook.prototype._update_autosave_interval = function (start) {
         var duration = (new Date().getTime() - start);
@@ -2854,7 +2991,7 @@ define([
     /**
      * Explicitly trust the output of this notebook.
      */
-    Notebook.prototype.trust_notebook = function () {
+    Notebook.prototype.trust_notebook = function (from_notification) {
         var body = $("<div>").append($("<p>")
             .text(i18n.msg._("A trusted Jupyter notebook may execute hidden malicious code when you open it. " +
                     "Selecting trust will immediately reload this notebook in a trusted state. " +
@@ -2870,6 +3007,7 @@ define([
             keyboard_manager: this.keyboard_manager,
             title: i18n.msg._("Trust this notebook?"),
             body: body,
+            focus_button: from_notification,
 
             buttons: {
                 Cancel : {},
@@ -2894,7 +3032,7 @@ define([
                         }
                         return pr.then(function() {                            
                             nb.contents.trust(nb.notebook_path)
-                            .then(function(res) {
+                            .then(function() {
                                 nb.events.trigger("trust_changed.Notebook", true);
                                 window.location.reload();
                             }, function(err) {
@@ -3161,6 +3299,7 @@ define([
      * @param {Error} error
      */
     Notebook.prototype.load_notebook_error = function (error) {
+        var isSanitized = true;
         this.events.trigger('notebook_load_failed.Notebook', error);
         var msg;
         if (error.name === utils.XHR_ERROR && error.xhr.status === 500) {
@@ -3173,14 +3312,26 @@ define([
             console.warn('Error stack trace while loading notebook was:');
             console.warn(error.stack);
         }
+        if (navigator.cookieEnabled == false){
+            msg = i18n.msg._("Jupyter requires cookies to work; please enable cookies" +
+                " and refresh page. <a href=\"https://www.wikihow.com/Enable-Cookies-in-Your-Internet-Web-Browser\"> Learn more about enabling cookies. </a>");
+            isSanitized = false;
+        }
         dialog.modal({
             notebook: this,
             keyboard_manager: this.keyboard_manager,
             title: i18n.msg._("Error loading notebook"),
             body : msg,
             buttons : {
-                "OK": {}
-            }
+                "Close": {
+                    class : 'btn-danger',
+                    click : function () {
+                        window.close();
+                    }
+                }
+              },
+              sanitize: isSanitized
+          
         });
     };
 
@@ -3191,7 +3342,7 @@ define([
      */
     Notebook.prototype.save_checkpoint = function () {
         this._checkpoint_after_save = true;
-        this.save_notebook(true);
+        return this.save_notebook(true);
     };
     
     /**
@@ -3358,4 +3509,4 @@ define([
     };
 
     return {Notebook: Notebook};
-})
+});
